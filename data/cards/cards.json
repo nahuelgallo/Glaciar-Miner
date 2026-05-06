@@ -1,0 +1,85 @@
+[
+  {
+    "id": "minero",
+    "name": "Minero",
+    "type": "HERO",
+    "faction": "APOLITICAL",
+    "rarity": "COMMON",
+    "hp": 5,
+    "defense": 2,
+    "recycle_value": 1,
+    "description": "Tu héroe de partida. Confiable, sin gloria."
+  },
+  {
+    "id": "diputado",
+    "name": "Diputado",
+    "type": "HERO",
+    "faction": "MACRIST",
+    "rarity": "RARE",
+    "hp": 3,
+    "defense": 3,
+    "recycle_value": 3,
+    "description": "Mucha defensa, poco HP. Vota lo que conviene."
+  },
+  {
+    "id": "pico_basico",
+    "name": "Pico Básico",
+    "type": "ACTION",
+    "faction": "APOLITICAL",
+    "rarity": "COMMON",
+    "recycle_value": 1,
+    "description": "Inflige 2 de daño.",
+    "effect": { "kind": "deal_damage", "amount": 2 }
+  },
+  {
+    "id": "voto_negativo",
+    "name": "Voto Negativo",
+    "type": "ACTION",
+    "faction": "LIBERTARIAN",
+    "rarity": "RARE",
+    "recycle_value": 3,
+    "description": "Inflige 4★ de daño al enemigo.",
+    "effect": { "kind": "deal_damage", "amount": 4 }
+  },
+  {
+    "id": "grito_de_glaciar",
+    "name": "Grito del Glaciar",
+    "type": "EFFECT",
+    "faction": "NONE",
+    "rarity": "RARE",
+    "recycle_value": 3,
+    "description": "Curás 4 HP del jugador.",
+    "effect": { "kind": "heal_player", "amount": 4 }
+  },
+  {
+    "id": "filibustero",
+    "name": "Filibustero",
+    "type": "EFFECT",
+    "faction": "NONE",
+    "rarity": "RARE",
+    "recycle_value": 3,
+    "description": "Curás al héroe activo 5 HP. (Placeholder hasta que exista skip-turn.)",
+    "effect": { "kind": "heal_self", "amount": 5 }
+  },
+  {
+    "id": "cuarzo_obrero",
+    "name": "Cuarzo Obrero",
+    "type": "EFFECT",
+    "faction": "NONE",
+    "rarity": "COMMON",
+    "recycle_value": 1,
+    "description": "Ganás 2 de Argentite.",
+    "effect": { "kind": "gain_minerals", "faction": "APOLITICAL", "amount": 2 }
+  },
+  {
+    "id": "messi",
+    "name": "Messi",
+    "type": "HERO",
+    "faction": "APOLITICAL",
+    "rarity": "RARE",
+    "hp": 6,
+    "defense": 3,
+    "recycle_value": 3,
+    "description": "Apolítico por excelencia. Placeholder hasta definir el FTUE."
+  }
+]

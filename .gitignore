@@ -1,0 +1,18 @@
+# Godot 4
+.godot/
+
+# Exports
+export.cfg
+export_presets.cfg
+build/
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editores
+*.tmp
+*.bak
+.vscode/
+.idea/
