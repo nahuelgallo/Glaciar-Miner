@@ -4,14 +4,18 @@ extends Node2D
 # Visual del héroe invocado en el campo. Distinto de CardView (la carta en
 # la mano): acá la carta ya fue jugada y el héroe es un combatiente con HP
 # mutable (HeroInstance). Color de fondo = facción de la carta (§8.2).
+#
+# El layout matchea el mockup: nombre arriba, "USOS: x/y" (HP/MaxHP), barra
+# de salud abajo del rect.
 
-const W: float = 150.0
-const H: float = 110.0
+const W: float = 130.0
+const H: float = 90.0
 
 var data: HeroInstance
 
 var _name_label: Label
-var _stats_label: Label
+var _uses_label: Label
+var _def_label: Label
 
 
 func _ready() -> void:
@@ -25,6 +29,17 @@ func _draw() -> void:
 	var rect := Rect2(-W * 0.5, -H * 0.5, W, H)
 	draw_rect(rect, _faction_color())
 	draw_rect(rect, Color(0.15, 0.10, 0.05), false, 3.0)
+	# Barra de salud bajo el rect.
+	if data != null and data.max_hp > 0:
+		var bar_w := W
+		var bar_h := 6.0
+		var bar_y := H * 0.5 + 3.0
+		var bg_rect := Rect2(-bar_w * 0.5, bar_y, bar_w, bar_h)
+		draw_rect(bg_rect, Color(0.15, 0.12, 0.10))
+		var ratio: float = clampf(float(data.hp) / float(data.max_hp), 0.0, 1.0)
+		var fg_rect := Rect2(-bar_w * 0.5, bar_y, bar_w * ratio, bar_h)
+		var bar_color := Color(0.30, 0.85, 0.40) if ratio > 0.5 else (Color(0.95, 0.85, 0.30) if ratio > 0.25 else Color(0.95, 0.30, 0.30))
+		draw_rect(fg_rect, bar_color)
 
 
 func _faction_color() -> Color:
@@ -41,15 +56,20 @@ func _faction_color() -> Color:
 
 
 func _build() -> void:
-	_name_label = _make_label(14, Color(0.08, 0.06, 0.03))
-	_name_label.position = Vector2(-W * 0.5 + 8.0, -H * 0.5 + 4.0)
-	_name_label.size = Vector2(W - 16.0, 20.0)
+	_name_label = _make_label(13, Color(0.08, 0.06, 0.03))
+	_name_label.position = Vector2(-W * 0.5 + 6.0, -H * 0.5 + 4.0)
+	_name_label.size = Vector2(W - 12.0, 18.0)
 	add_child(_name_label)
 
-	_stats_label = _make_label(13, Color(0.12, 0.09, 0.05))
-	_stats_label.position = Vector2(-W * 0.5 + 8.0, H * 0.5 - 24.0)
-	_stats_label.size = Vector2(W - 16.0, 18.0)
-	add_child(_stats_label)
+	_uses_label = _make_label(11, Color(0.10, 0.08, 0.04))
+	_uses_label.position = Vector2(-W * 0.5 + 6.0, -H * 0.5 + 24.0)
+	_uses_label.size = Vector2(W - 12.0, 16.0)
+	add_child(_uses_label)
+
+	_def_label = _make_label(11, Color(0.10, 0.08, 0.04))
+	_def_label.position = Vector2(-W * 0.5 + 6.0, H * 0.5 - 22.0)
+	_def_label.size = Vector2(W - 12.0, 16.0)
+	add_child(_def_label)
 
 
 func _make_label(font_size: int, color: Color) -> Label:
@@ -64,7 +84,8 @@ func _refresh() -> void:
 	if data == null:
 		return
 	_name_label.text = data.data.card_name
-	_stats_label.text = "HP %d/%d  DEF %d" % [data.hp, data.max_hp, data.defense()]
+	_uses_label.text = "HP %d/%d" % [data.hp, data.max_hp]
+	_def_label.text = "DEF %d" % data.defense()
 	queue_redraw()
 
 

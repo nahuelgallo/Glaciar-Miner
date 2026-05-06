@@ -1,37 +1,41 @@
 extends Node2D
 
+# Pantalla de combate. Layout basado en `Referencia/Frame 2(1).png`:
+#
+#   [Top bar: info jugador · cola próximos turnos · minerales · pausa]
+#   [Tutorial?][              Combat log central             ][Dev?]
+#   [Heroes col]    [Eye candy placeholder]    [Enemies col]
+#   [Mazo+Descarte][Card preview][      Mano      ][Next turn]
+#                          [Help footer]
+#
+# Las áreas marcadas con `?` son placeholders dev/tutorial — punteadas en el
+# mockup para indicar "aparecen ocasionalmente".
+
 @onready var _hand: HandManager = $HandManager
-@onready var _help_label: Label = $Help
 
-var _pool: Array[CardData] = []
-var _battlefield: Battlefield
-var _discard_pile: DiscardPileView
-var _hp_label: Label
-var _hero_label: Label
-var _last_attack_label: Label
-var _turn_label: Label
-var _mineral_labels: Dictionary = {}  # Faction -> Label
+# ──────────────────────────────────────────────────────────────────
+# CONFIG
+# ──────────────────────────────────────────────────────────────────
 
-# §6.2: turnos del jugador alternan con turnos enemigos. Mano persiste, no se
-# descarta al fin del turno. Cap de mano implícito para que no crezca infinito.
 const HAND_CAP: int = 7
 const ENEMY_INTENT_MIN: int = 3
 const ENEMY_INTENT_MAX: int = 7
-var _turn_number: int = 1
+const TURN_QUEUE_PEEK: int = 5
 
-# Cuando el combate termina (victoria o derrota), bloqueamos más acciones
-# para que el jugador se concentre en apretar Q y volver a exploración.
-var _combat_ended: bool = false
+# Posiciones del HUD (1280×720).
+const BATTLEFIELD_POS := Vector2(640.0, 350.0)
+const COMBAT_LOG_POS := Vector2(240.0, 64.0)
+const COMBAT_LOG_SIZE := Vector2(820.0, 102.0)
+const TUTORIAL_AREA := Rect2(16.0, 64.0, 200.0, 130.0)
+const EYE_CANDY_AREA := Rect2(240.0, 180.0, 820.0, 290.0)
+const DEV_AREA := Rect2(1064.0, 64.0, 200.0, 130.0)
+const DECK_STACK_POS := Vector2(60.0, 580.0)
+const DISCARD_STACK_POS := Vector2(60.0, 680.0)
+const CARD_PREVIEW_RECT := Rect2(130.0, 540.0, 130.0, 170.0)
+const NEXT_TURN_BUTTON_RECT := Rect2(1110.0, 540.0, 150.0, 50.0)
+const PAUSE_BUTTON_RECT := Rect2(1190.0, 12.0, 80.0, 30.0)
+const FOOTER_RECT := Rect2(0.0, 700.0, 1280.0, 20.0)
 
-# Héroe "activo" para validar la regla del §6.4. Cuando exista la mecánica
-# real de invocación desde la mano, esto pasa al CombatState.
-var _active_hero: HeroInstance
-
-# Ciclo de valores para variar la intención enemiga al testear (atajo I).
-const _INTENT_CYCLE: Array[int] = [3, 5, 8, 12]
-var _intent_cycle_index: int = 1  # arranca en 5
-
-# Mapeo tecla → facción para los atajos de testeo de gain.
 const _MINERAL_HOTKEYS: Dictionary = {
 	KEY_1: CardData.Faction.PERONIST,
 	KEY_2: CardData.Faction.LIBERTARIAN,
@@ -41,45 +45,57 @@ const _MINERAL_HOTKEYS: Dictionary = {
 	KEY_6: CardData.Faction.OUTSIDER,
 }
 
+const _INTENT_CYCLE: Array[int] = [3, 5, 8, 12]
+
+# ──────────────────────────────────────────────────────────────────
+# STATE
+# ──────────────────────────────────────────────────────────────────
+
+var _pool: Array[CardData] = []
+var _battlefield: Battlefield
+var _discard_pile: DiscardPileView
+var _turn_number: int = 1
+var _intent_cycle_index: int = 1
+var _combat_ended: bool = false
+
+# HUD nodes
+var _top_info_label: Label
+var _minerals_inline: RichTextLabel
+var _turn_queue_box: HBoxContainer
+var _pause_button: Button
+var _next_turn_button: Button
+var _combat_log: RichTextLabel
+var _deck_count_label: Label
+var _card_preview_label: Label
+var _help_footer_label: Label
+
+
+# ──────────────────────────────────────────────────────────────────
+# READY / BUILD
+# ──────────────────────────────────────────────────────────────────
+
 
 func _ready() -> void:
 	_setup_picking()
-
 	_pool = CardLoader.load_all()
-	if _pool.is_empty():
-		push_warning("Main: no hay cartas en el JSON")
-	else:
-		# Mano inicial de 5 cartas random.
-		for i in 5:
-			_hand.add_card(_pool.pick_random())
-		print("Cargadas %d cartas en la mano" % _hand.size())
-
 	_build_battlefield()
 	_build_hud()
 	_connect_run_state()
-	_summon_first_hero_from_pool()
+	_auto_summon_signature()
 	_spawn_pending_or_default_enemies()
+	_hand.position = Vector2(680.0, 615.0)
 	_hand.card_dropped.connect(_on_card_dropped)
+	if _pool.is_empty():
+		push_warning("Main: no hay cartas en el JSON")
+	else:
+		for i in 5:
+			_hand.add_card(_pool.pick_random())
 	_refresh_hud()
-	_help_label.text = (
-		"Arrastrá una carta al campo:\n"
-		+ "  HERO → al battlefield    ACTION daño → al enemigo    EFFECT → al battlefield\n"
-		+ "T = End Turn (enemigos atacan, robás 1)   Q = volver a exploración\n"
-		+ "SPACE = +carta   BACKSPACE = -carta   R = reset mano\n"
-		+ "1..6 = +2 mineral   N = -3 HP   H = +3 HP\n"
-		+ "K = enemigo individual ejecuta intención   D = vos pegás 3 al enemigo\n"
-		+ "I = ciclar intención   O = quitar/restaurar héroe   E = respawn enemigo"
-	)
 
 
 func _setup_picking() -> void:
-	# Sin picking activado, los Area2D de las cartas no reciben mouse_entered
-	# ni input_event (Godot 4 lo desactiva por default).
 	var vp := get_viewport()
 	vp.physics_object_picking = true
-	# Cuando dos cartas se solapan, sin first_only ambas reciben el click.
-	# sort=true ordena por z-index (la de arriba gana), first_only=true entrega
-	# el evento solo a la primera.
 	if "physics_object_picking_sort" in vp:
 		vp.physics_object_picking_sort = true
 	if "physics_object_picking_first_only" in vp:
@@ -89,14 +105,12 @@ func _setup_picking() -> void:
 func _build_battlefield() -> void:
 	_battlefield = Battlefield.new()
 	_battlefield.name = "Battlefield"
-	# Centrado horizontalmente, encima del HandManager (1280×720, hand en y=470).
-	_battlefield.position = Vector2(640.0, 250.0)
+	_battlefield.position = BATTLEFIELD_POS
 	add_child(_battlefield)
 
 	_discard_pile = DiscardPileView.new()
 	_discard_pile.name = "DiscardPile"
-	# A la derecha del battlefield, alineado vertical con el hero slot.
-	_discard_pile.position = Vector2(1120.0, 330.0)
+	_discard_pile.position = DISCARD_STACK_POS
 	add_child(_discard_pile)
 
 
@@ -108,39 +122,220 @@ func _build_hud() -> void:
 	hud.anchor_bottom = 1.0
 	add_child(hud)
 
-	var panel := VBoxContainer.new()
-	panel.position = Vector2(16.0, 110.0)
-	panel.add_theme_constant_override("separation", 4)
-	hud.add_child(panel)
+	_build_top_bar(hud)
+	_build_combat_log(hud)
+	_build_card_preview(hud)
+	_build_deck_count(hud)
+	_build_next_turn_button(hud)
+	_build_help_footer(hud)
+	_build_placeholder_labels(hud)
 
-	_turn_label = _make_label(15, Color(0.85, 0.95, 0.55))
-	panel.add_child(_turn_label)
 
-	_hp_label = _make_label(16, Color(1.0, 0.55, 0.55))
-	panel.add_child(_hp_label)
+func _build_placeholder_labels(parent: Control) -> void:
+	# Labels descriptivos dentro de las áreas punteadas para que se vea de
+	# qué se trata cada zona. El borde punteado lo dibuja el _draw del root.
+	var areas := [
+		[TUTORIAL_AREA, "Tutorial / ayuda al jugador\n(aparece ocasionalmente)"],
+		[EYE_CANDY_AREA, "Eye candy: efectos visuales\nde quien juega ahora"],
+		[DEV_AREA, "Dev / debug\n(stats y botones especiales)"],
+	]
+	for entry in areas:
+		var rect: Rect2 = entry[0]
+		var text: String = entry[1]
+		var lbl := _make_label(11, Color(0.50, 0.53, 0.58))
+		lbl.position = rect.position + Vector2(8.0, 8.0)
+		lbl.size = rect.size - Vector2(16.0, 16.0)
+		lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		lbl.text = text
+		parent.add_child(lbl)
 
-	_hero_label = _make_label(13, Color(0.95, 0.85, 0.55))
-	panel.add_child(_hero_label)
 
-	_last_attack_label = _make_label(12, Color(0.85, 0.85, 0.85))
-	_last_attack_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_last_attack_label.custom_minimum_size = Vector2(360.0, 0.0)
-	panel.add_child(_last_attack_label)
+func _build_top_bar(parent: Control) -> void:
+	# Info del jugador (izquierda)
+	_top_info_label = _make_label(14, Color(1.0, 0.62, 0.62))
+	_top_info_label.position = Vector2(16.0, 14.0)
+	_top_info_label.size = Vector2(300.0, 24.0)
+	parent.add_child(_top_info_label)
 
-	# Una label por facción real (NONE no produce mineral propio — §7.3).
-	for f in CardData.Faction.values():
-		if f == CardData.Faction.NONE:
-			continue
-		var lbl := _make_label(13, _faction_text_color(f))
-		_mineral_labels[f] = lbl
-		panel.add_child(lbl)
+	# Cola de próximos turnos (centro)
+	var queue_label := _make_label(11, Color(0.75, 0.78, 0.85))
+	queue_label.position = Vector2(330.0, 4.0)
+	queue_label.size = Vector2(80.0, 16.0)
+	queue_label.text = "Próximos turnos"
+	parent.add_child(queue_label)
+
+	_turn_queue_box = HBoxContainer.new()
+	_turn_queue_box.position = Vector2(330.0, 18.0)
+	_turn_queue_box.add_theme_constant_override("separation", 4)
+	parent.add_child(_turn_queue_box)
+
+	# Minerales en formato compacto coloreado (derecha)
+	_minerals_inline = RichTextLabel.new()
+	_minerals_inline.bbcode_enabled = true
+	_minerals_inline.fit_content = true
+	_minerals_inline.scroll_active = false
+	_minerals_inline.position = Vector2(820.0, 14.0)
+	_minerals_inline.size = Vector2(360.0, 26.0)
+	_minerals_inline.add_theme_font_size_override("normal_font_size", 12)
+	parent.add_child(_minerals_inline)
+
+	# Pausa (placeholder)
+	_pause_button = Button.new()
+	_pause_button.text = "Pausa"
+	_pause_button.position = PAUSE_BUTTON_RECT.position
+	_pause_button.size = PAUSE_BUTTON_RECT.size
+	_pause_button.pressed.connect(_on_pause_pressed)
+	parent.add_child(_pause_button)
+
+
+func _build_combat_log(parent: Control) -> void:
+	_combat_log = RichTextLabel.new()
+	_combat_log.bbcode_enabled = true
+	_combat_log.scroll_active = true
+	_combat_log.scroll_following = true
+	_combat_log.position = COMBAT_LOG_POS
+	_combat_log.size = COMBAT_LOG_SIZE
+	_combat_log.add_theme_color_override("default_color", Color(0.85, 0.85, 0.88))
+	_combat_log.add_theme_font_size_override("normal_font_size", 13)
+	parent.add_child(_combat_log)
+
+
+func _build_card_preview(parent: Control) -> void:
+	_card_preview_label = _make_label(11, Color(0.78, 0.78, 0.82))
+	_card_preview_label.position = CARD_PREVIEW_RECT.position + Vector2(8.0, 8.0)
+	_card_preview_label.size = CARD_PREVIEW_RECT.size - Vector2(16.0, 16.0)
+	_card_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_card_preview_label.text = "Hover una carta\npara ver detalles"
+	parent.add_child(_card_preview_label)
+
+
+func _build_deck_count(parent: Control) -> void:
+	# Counter encima de DECK stack
+	var deck_title := _make_label(11, Color(0.85, 0.85, 0.88))
+	deck_title.position = Vector2(DECK_STACK_POS.x - 35.0, DECK_STACK_POS.y - 60.0)
+	deck_title.size = Vector2(70.0, 16.0)
+	deck_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	deck_title.text = "MAZO"
+	parent.add_child(deck_title)
+
+	_deck_count_label = _make_label(13, Color(0.95, 0.95, 0.92))
+	_deck_count_label.position = Vector2(DECK_STACK_POS.x - 35.0, DECK_STACK_POS.y - 8.0)
+	_deck_count_label.size = Vector2(70.0, 16.0)
+	_deck_count_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	parent.add_child(_deck_count_label)
+
+	var discard_title := _make_label(11, Color(0.85, 0.85, 0.88))
+	discard_title.position = Vector2(DISCARD_STACK_POS.x - 35.0, DISCARD_STACK_POS.y - 60.0)
+	discard_title.size = Vector2(70.0, 16.0)
+	discard_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	discard_title.text = "DESCARTE"
+	parent.add_child(discard_title)
+
+
+func _build_next_turn_button(parent: Control) -> void:
+	_next_turn_button = Button.new()
+	_next_turn_button.text = "Siguiente\nturno"
+	_next_turn_button.position = NEXT_TURN_BUTTON_RECT.position
+	_next_turn_button.size = NEXT_TURN_BUTTON_RECT.size
+	_next_turn_button.pressed.connect(_end_player_turn)
+	parent.add_child(_next_turn_button)
+
+
+func _build_help_footer(parent: Control) -> void:
+	_help_footer_label = _make_label(11, Color(0.55, 0.58, 0.62))
+	_help_footer_label.position = FOOTER_RECT.position
+	_help_footer_label.size = FOOTER_RECT.size
+	_help_footer_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_help_footer_label.text = (
+		"Drag = jugar carta · T = siguiente turno · Q = volver a explorar · "
+		+ "1-6 = +mineral · K = enemigo ataca · D = pegás 3 · I = ciclar intent · O = toggle héroe · E = respawn"
+	)
+	parent.add_child(_help_footer_label)
 
 
 func _make_label(font_size: int, color: Color) -> Label:
 	var lbl := Label.new()
 	lbl.add_theme_font_size_override("font_size", font_size)
 	lbl.add_theme_color_override("font_color", color)
+	lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return lbl
+
+
+# ──────────────────────────────────────────────────────────────────
+# DRAW DEL ROOT (background + áreas placeholder punteadas)
+# ──────────────────────────────────────────────────────────────────
+
+
+func _draw() -> void:
+	# Background general (el ColorRect del .tscn fue removido para no tapar
+	# este draw; ver insight de orden de render).
+	draw_rect(Rect2(0.0, 0.0, 1280.0, 720.0), Color(0.10, 0.12, 0.16))
+	# Top bar background
+	draw_rect(Rect2(0.0, 0.0, 1280.0, 50.0), Color(0.16, 0.18, 0.22))
+	draw_rect(Rect2(0.0, 50.0, 1280.0, 2.0), Color(0.30, 0.32, 0.35))
+	# Footer bar
+	draw_rect(Rect2(0.0, 696.0, 1280.0, 24.0), Color(0.16, 0.18, 0.22))
+	draw_rect(Rect2(0.0, 694.0, 1280.0, 2.0), Color(0.30, 0.32, 0.35))
+	# Áreas placeholder (punteadas, ocasionales según el mockup)
+	_draw_dashed_rect(TUTORIAL_AREA, Color(0.55, 0.58, 0.62), "Tutorial / ayuda")
+	_draw_dashed_rect(EYE_CANDY_AREA, Color(0.45, 0.48, 0.55), "Eye candy: efectos visuales / turno actual")
+	_draw_dashed_rect(DEV_AREA, Color(0.55, 0.58, 0.62), "Dev / debug")
+	# Card preview frame (no punteado: sí está siempre visible)
+	draw_rect(CARD_PREVIEW_RECT, Color(0.14, 0.16, 0.20))
+	draw_rect(CARD_PREVIEW_RECT, Color(0.30, 0.32, 0.36), false, 1.5)
+	# Deck stack visual (rectángulos apilados)
+	_draw_card_stack(DECK_STACK_POS, Color(0.30, 0.34, 0.40))
+	# (El descarte se dibuja desde DiscardPileView)
+
+
+func _draw_dashed_rect(rect: Rect2, color: Color, label: String = "") -> void:
+	var dash := 6.0
+	var gap := 4.0
+	# Top
+	var x := rect.position.x
+	while x < rect.position.x + rect.size.x:
+		var x2 := minf(x + dash, rect.position.x + rect.size.x)
+		draw_line(Vector2(x, rect.position.y), Vector2(x2, rect.position.y), color, 1.5)
+		x += dash + gap
+	# Bottom
+	x = rect.position.x
+	var by := rect.position.y + rect.size.y
+	while x < rect.position.x + rect.size.x:
+		var x2 := minf(x + dash, rect.position.x + rect.size.x)
+		draw_line(Vector2(x, by), Vector2(x2, by), color, 1.5)
+		x += dash + gap
+	# Left
+	var y := rect.position.y
+	while y < rect.position.y + rect.size.y:
+		var y2 := minf(y + dash, rect.position.y + rect.size.y)
+		draw_line(Vector2(rect.position.x, y), Vector2(rect.position.x, y2), color, 1.5)
+		y += dash + gap
+	# Right
+	y = rect.position.y
+	var rx := rect.position.x + rect.size.x
+	while y < rect.position.y + rect.size.y:
+		var y2 := minf(y + dash, rect.position.y + rect.size.y)
+		draw_line(Vector2(rx, y), Vector2(rx, y2), color, 1.5)
+		y += dash + gap
+
+
+func _draw_card_stack(center: Vector2, color: Color) -> void:
+	const W := 70.0
+	const H := 90.0
+	const LAYERS := 4
+	for i in range(LAYERS - 1, -1, -1):
+		var off := Vector2(float(i) * 1.5, -float(i) * 2.0)
+		var rect := Rect2(center.x - W * 0.5 + off.x, center.y - H * 0.5 + off.y, W, H)
+		var c := color if i == 0 else color.darkened(0.15 + 0.05 * float(i))
+		draw_rect(rect, c)
+		draw_rect(rect, Color(0.10, 0.08, 0.06), false, 1.5)
+
+
+# ──────────────────────────────────────────────────────────────────
+# CONNECT / REFRESH
+# ──────────────────────────────────────────────────────────────────
 
 
 func _connect_run_state() -> void:
@@ -148,22 +343,137 @@ func _connect_run_state() -> void:
 	RunState.minerals_changed.connect(_on_minerals_changed)
 
 
-func _summon_first_hero_from_pool() -> void:
+func _refresh_hud() -> void:
+	_on_player_hp_changed(RunState.player_hp, RunState.player_max_hp)
+	_refresh_minerals()
+	_refresh_turn_queue()
+	_refresh_deck_count()
+	queue_redraw()
+
+
+func _on_player_hp_changed(current: int, maximum: int) -> void:
+	var alive_heroes: int = 0
+	if _battlefield != null:
+		for h in _battlefield.heroes():
+			if h.is_alive():
+				alive_heroes += 1
+	_top_info_label.text = "HP %d/%d   ·   Héroes en campo: %d/%d   ·   Turno %d" % [
+		current, maximum, alive_heroes, Battlefield.MAX_HEROES, _turn_number
+	]
+
+
+func _on_minerals_changed(_faction: int, _new_amount: int) -> void:
+	_refresh_minerals()
+
+
+func _refresh_minerals() -> void:
+	var bb := ""
+	for f in CardData.Faction.values():
+		if f == CardData.Faction.NONE:
+			continue
+		var c := _faction_color(f).to_html(false)
+		var amt := RunState.minerals.get_amount(f)
+		var letter := _faction_letter(f)
+		bb += "[color=#%s]%s %d[/color]   " % [c, letter, amt]
+	_minerals_inline.text = bb
+
+
+func _refresh_deck_count() -> void:
+	# Hoy "deck" = el pool de cartas disponibles. Cuando exista deck/discard
+	# real (M2 del ROADMAP), esto pasa a ser el conteo real del mazo activo.
+	_deck_count_label.text = "%d" % _pool.size()
+
+
+func _refresh_turn_queue() -> void:
+	for child in _turn_queue_box.get_children():
+		child.queue_free()
+	# Arma una secuencia: VOS → cada enemigo vivo en orden → VOS → ...
+	var alive_enemies: Array[String] = []
+	if _battlefield != null:
+		for e in _battlefield.enemies():
+			if e.is_alive():
+				alive_enemies.append(e.enemy_name)
+	var seq: Array[Dictionary] = []
+	seq.append({"label": "VOS", "is_player": true})
+	for n in alive_enemies:
+		seq.append({"label": n.to_upper(), "is_player": false})
+	# Si la secuencia es corta, repetimos hasta llenar TURN_QUEUE_PEEK.
+	if seq.is_empty():
+		return
+	var i := 0
+	for _k in TURN_QUEUE_PEEK:
+		var item: Dictionary = seq[i % seq.size()]
+		var pill := _make_turn_pill(String(item["label"]), bool(item["is_player"]), _k == 0)
+		_turn_queue_box.add_child(pill)
+		i += 1
+
+
+func _make_turn_pill(text: String, is_player: bool, is_current: bool) -> Control:
+	var panel := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.30, 0.55, 0.32) if is_player else Color(0.55, 0.30, 0.30)
+	if is_current:
+		sb.bg_color = sb.bg_color.lightened(0.15)
+		sb.border_color = Color(0.95, 0.92, 0.55)
+		sb.set_border_width_all(2)
+	sb.set_corner_radius_all(4)
+	sb.content_margin_left = 8
+	sb.content_margin_right = 8
+	sb.content_margin_top = 2
+	sb.content_margin_bottom = 2
+	panel.add_theme_stylebox_override("panel", sb)
+	var lbl := Label.new()
+	lbl.add_theme_font_size_override("font_size", 11)
+	lbl.add_theme_color_override("font_color", Color.WHITE)
+	lbl.text = text
+	panel.add_child(lbl)
+	return panel
+
+
+func _faction_color(f: int) -> Color:
+	match f:
+		CardData.Faction.PERONIST:    return Color(0.55, 0.78, 0.95)
+		CardData.Faction.LIBERTARIAN: return Color(0.78, 0.62, 0.95)
+		CardData.Faction.MACRIST:     return Color(0.95, 0.85, 0.35)
+		CardData.Faction.LEFTIST:     return Color(0.95, 0.55, 0.55)
+		CardData.Faction.APOLITICAL:  return Color(0.85, 0.85, 0.88)
+		CardData.Faction.OUTSIDER:    return Color(0.62, 0.58, 0.55)
+	return Color.WHITE
+
+
+func _faction_letter(f: int) -> String:
+	match f:
+		CardData.Faction.PERONIST:    return "P"
+		CardData.Faction.LIBERTARIAN: return "L"
+		CardData.Faction.MACRIST:     return "G"
+		CardData.Faction.LEFTIST:     return "Z"
+		CardData.Faction.APOLITICAL:  return "A"
+		CardData.Faction.OUTSIDER:    return "X"
+	return "?"
+
+
+func _log(line: String, color_hex: String = "cccccc") -> void:
+	_combat_log.append_text("[color=#%s]%s[/color]\n" % [color_hex, line])
+
+
+# ──────────────────────────────────────────────────────────────────
+# HEROES Y ENEMIGOS
+# ──────────────────────────────────────────────────────────────────
+
+
+# §7.7 placeholder: hoy "signature" = primer HERO del pool. Cuando entre
+# la designación real, esto lee `RunState.signature_id`.
+func _auto_summon_signature() -> void:
 	for card in _pool:
 		if card.type == CardData.Type.HERO:
-			_set_active_hero(HeroInstance.new(card))
+			_summon_hero_from_card(card)
 			return
 
 
-func _set_active_hero(hero: HeroInstance) -> void:
-	if _active_hero != null and _active_hero.hp_changed.is_connected(_on_hero_hp_changed):
-		_active_hero.hp_changed.disconnect(_on_hero_hp_changed)
-	_active_hero = hero
-	if _active_hero != null:
-		_active_hero.hp_changed.connect(_on_hero_hp_changed)
-	if _battlefield != null:
-		_battlefield.set_active_hero(hero)
-	_refresh_hero_label()
+func _summon_hero_from_card(card: CardData) -> bool:
+	if _battlefield == null:
+		return false
+	return _battlefield.add_hero(HeroInstance.new(card))
 
 
 func _spawn_pending_or_default_enemies() -> void:
@@ -186,156 +496,40 @@ func _spawn_pending_or_default_enemies() -> void:
 					spawned += 1
 					break
 	if spawned == 0:
-		# Fallback de testing: si la escena se abre directo (sin haber pasado
-		# por exploración) o el id no se encontró, spawneá un Slime base.
-		_spawn_default_enemy()
+		_battlefield.add_enemy(EnemyInstance.new("Slime", 14, _INTENT_CYCLE[_intent_cycle_index]))
 
 
-func _spawn_default_enemy() -> void:
-	if _battlefield == null:
-		return
-	_battlefield.clear_enemies()
-	_battlefield.add_enemy(EnemyInstance.new("Slime", 14, _INTENT_CYCLE[_intent_cycle_index]))
-
-
-func _refresh_hud() -> void:
-	_on_player_hp_changed(RunState.player_hp, RunState.player_max_hp)
-	_refresh_hero_label()
-	_refresh_turn_label()
-	_last_attack_label.text = ""
-	for f in _mineral_labels.keys():
-		_on_minerals_changed(f, RunState.minerals.get_amount(f))
-
-
-func _refresh_turn_label() -> void:
-	_turn_label.text = "Turno %d (jugador)" % _turn_number
-
-
-func _refresh_hero_label() -> void:
-	if _active_hero == null:
-		_hero_label.text = "Sin héroe en el campo (enemigos pegan al jugador a 2×)"
-		return
-	_hero_label.text = "Héroe: %s — HP %d/%d  DEF %d" % [
-		_active_hero.data.card_name,
-		_active_hero.hp,
-		_active_hero.max_hp,
-		_active_hero.defense(),
-	]
-
-
-func _on_player_hp_changed(current: int, maximum: int) -> void:
-	_hp_label.text = "HP %d / %d" % [current, maximum]
-
-
-func _on_hero_hp_changed(_current: int, _maximum: int) -> void:
-	_refresh_hero_label()
-
-
-func _on_minerals_changed(faction: int, new_amount: int) -> void:
-	var lbl: Label = _mineral_labels.get(faction)
-	if lbl == null:
-		return
-	lbl.text = "%s: %d" % [MineralBag.mineral_name(faction), new_amount]
-
-
-func _faction_text_color(f: CardData.Faction) -> Color:
-	match f:
-		CardData.Faction.PERONIST:    return Color(0.55, 0.78, 0.95)
-		CardData.Faction.LIBERTARIAN: return Color(0.78, 0.62, 0.95)
-		CardData.Faction.MACRIST:     return Color(0.95, 0.85, 0.35)
-		CardData.Faction.LEFTIST:     return Color(0.95, 0.55, 0.55)
-		CardData.Faction.APOLITICAL:  return Color(0.85, 0.85, 0.88)
-		CardData.Faction.OUTSIDER:    return Color(0.62, 0.58, 0.55)
-	return Color.WHITE
-
-
-func _enemy_executes_intent() -> void:
-	if _combat_ended:
-		return
-	var enemy: EnemyInstance = _battlefield.first_alive_enemy() if _battlefield != null else null
-	if enemy == null:
-		_last_attack_label.text = "No hay enemigos vivos."
-		return
-	var result := CombatResolver.resolve_enemy_attack(_active_hero, enemy.intent_damage)
-	_report_enemy_attack(enemy, result)
-	# §6.4: si el héroe murió en este hit, queda removido del campo. Su carta
-	# no se destruye (decay cortado §7.8); cuando exista la mecánica de
-	# resummon esto vuelve.
-	if result["hero_died"]:
-		_set_active_hero(null)
-	_check_combat_outcome()
-
-
-func _player_attacks_enemy(damage: int) -> void:
-	if _combat_ended:
-		return
-	var enemy: EnemyInstance = _battlefield.first_alive_enemy() if _battlefield != null else null
-	if enemy == null:
-		_last_attack_label.text = "No hay enemigos vivos para atacar."
-		return
-	var result := CombatResolver.resolve_player_attack(enemy, damage)
-	_report_player_attack(enemy, result)
-	_check_combat_outcome()
-
-
-func _report_enemy_attack(enemy: EnemyInstance, result: Dictionary) -> void:
-	var incoming: int = result["incoming_damage"]
-	if result["target"] == null:
-		_last_attack_label.text = "%s pega %d → SIN HÉROE — jugador recibe %d (×2)" % [
-			enemy.enemy_name, incoming, result["player_damage"]
-		]
-		return
-	var hero: HeroInstance = result["target"]
-	var line := "%s pega %d → %s recibe %d" % [
-		enemy.enemy_name, incoming, hero.data.card_name, result["hero_damage"]
-	]
-	if result["player_damage"] > 0:
-		line += "  |  overflow al jugador: %d" % result["player_damage"]
-	if result["hero_died"]:
-		line += "  |  ✖ héroe caído"
-	_last_attack_label.text = line
-
-
-func _report_player_attack(enemy: EnemyInstance, result: Dictionary) -> void:
-	var incoming: int = result["incoming_damage"]
-	var actual: int = result["enemy_damage"]
-	var line := "Vos pegás %d → %s recibe %d" % [incoming, enemy.enemy_name, actual]
-	if result["enemy_died"]:
-		line += "  |  ✖ derrotado"
-	_last_attack_label.text = line
+# ──────────────────────────────────────────────────────────────────
+# DROP HANDLING (desde la mano)
+# ──────────────────────────────────────────────────────────────────
 
 
 func _on_card_dropped(card: CardData, drop_position: Vector2, view: CardView) -> void:
-	var context := _build_drop_context(card, drop_position)
-	if context.is_empty():
-		# Drop inválido (target wrong / fuera del battlefield). La carta vuelve
-		# sola al slot porque ya soltó el drag.
-		_last_attack_label.text = _drop_invalid_message(card)
-		return
 	if _combat_ended:
 		return
+	var context := _build_drop_context(card, drop_position)
+	if context.is_empty():
+		_log(_drop_invalid_message(card), "ffaa55")
+		return
 	var result := EffectExecutor.execute(card, context)
-	_last_attack_label.text = result["message"]
-	if result["ok"]:
-		# §7.1: action/effect cards van al descarte después de jugarse; HERO
-		# cards salen de la mano al invocarse (van al campo, no al discard,
-		# pero sin estado de "carta en juego" todavía las apilamos acá igual
-		# para feedback visual).
+	_log(String(result["message"]), "cccccc" if bool(result["ok"]) else "ff8866")
+	if bool(result["ok"]):
 		_hand.remove_view(view)
 		if _discard_pile != null:
 			_discard_pile.add_card(card)
 		_check_combat_outcome()
+		_refresh_hud()
 
 
-# Construye el context para EffectExecutor según target_kind y el drop.
-# Devuelve {} si el drop no es válido para esta carta.
 func _build_drop_context(card: CardData, drop_position: Vector2) -> Dictionary:
 	var kind := EffectExecutor.target_kind_for(card)
-	# HERO: drop sobre el battlefield → invoca.
 	if card.type == CardData.Type.HERO:
-		if not _battlefield.is_over_battlefield(drop_position):
+		# Drop sobre el battlefield o sobre algún hero slot → invocar.
+		if not (_battlefield.is_over_battlefield(drop_position) or _battlefield.is_over_hero_slot(drop_position)):
 			return {}
-		return { "summon_callback": Callable(self, "_set_active_hero") }
+		if _battlefield.is_full_of_heroes():
+			return {}
+		return { "summon_callback": Callable(self, "_summon_hero_callback") }
 	match kind:
 		EffectExecutor.TargetKind.ENEMY:
 			var enemy := _battlefield.enemy_at(drop_position)
@@ -343,22 +537,30 @@ func _build_drop_context(card: CardData, drop_position: Vector2) -> Dictionary:
 				return {}
 			return { "target_enemy": enemy }
 		EffectExecutor.TargetKind.HERO_SELF:
-			if _active_hero == null:
+			var hero := _battlefield.first_alive_hero()
+			if hero == null:
 				return {}
-			# HERO_SELF: aceptamos drop sobre el hero slot o sobre el área general.
 			if not (_battlefield.is_over_hero_slot(drop_position) or _battlefield.is_over_battlefield(drop_position)):
 				return {}
-			return { "active_hero": _active_hero }
+			return { "active_hero": hero }
 		EffectExecutor.TargetKind.NONE, _:
 			if not _battlefield.is_over_battlefield(drop_position):
 				return {}
 			return {}
 
 
+# Callback que EffectExecutor llama al jugar una HERO. Devuelve bool para que
+# si el campo está lleno (3/3) la jugada falle y la carta vuelva al slot.
+func _summon_hero_callback(hero: HeroInstance) -> bool:
+	return _battlefield.add_hero(hero)
+
+
 func _drop_invalid_message(card: CardData) -> String:
 	var kind := EffectExecutor.target_kind_for(card)
 	if card.type == CardData.Type.HERO:
-		return "Soltá %s sobre el campo de combate para invocar." % card.card_name
+		if _battlefield.is_full_of_heroes():
+			return "Campo de héroes lleno (3/3). Bajá uno antes de invocar otro."
+		return "Soltá %s sobre el campo para invocar." % card.card_name
 	match kind:
 		EffectExecutor.TargetKind.ENEMY:
 			return "%s necesita un enemigo como target." % card.card_name
@@ -367,40 +569,103 @@ func _drop_invalid_message(card: CardData) -> String:
 	return "Soltá %s sobre el campo de combate." % card.card_name
 
 
+# ──────────────────────────────────────────────────────────────────
+# COMBATE: TURNOS Y RESOLUCIÓN
+# ──────────────────────────────────────────────────────────────────
+
+
 func _end_player_turn() -> void:
 	if _battlefield == null or _combat_ended:
 		return
-	# Cada enemigo vivo ejecuta su intent telegrafiada (§6.5).
+	# Cada enemigo vivo ejecuta intent (§6.5).
 	var enemies := _battlefield.enemies()
 	var any_acted := false
 	for enemy in enemies:
 		if not enemy.is_alive():
 			continue
 		any_acted = true
-		var result := CombatResolver.resolve_enemy_attack(_active_hero, enemy.intent_damage)
+		var target := _battlefield.first_alive_hero()
+		var result := CombatResolver.resolve_enemy_attack(target, enemy.intent_damage)
 		_report_enemy_attack(enemy, result)
-		if result["hero_died"]:
-			_set_active_hero(null)
+		_battlefield.remove_dead_heroes()
 		_check_combat_outcome()
 		if _combat_ended:
 			return
-	# Recalcular intents para el próximo turno (§6.5: telegrafiadas con
-	# anticipación). Random simple por ahora — patrones por enemy type vendrán.
+	# Recalcular intents.
 	for enemy in enemies:
 		if enemy.is_alive():
 			enemy.set_intent(randi_range(ENEMY_INTENT_MIN, ENEMY_INTENT_MAX))
-	# Inicio del próximo turno del jugador: draw 1 (§6.2). Cap de mano para
-	# que no crezca infinito mientras el deck/discard no exista.
+	# Inicio del próximo turno: draw 1 (§6.2).
 	_turn_number += 1
-	_refresh_turn_label()
 	if not _pool.is_empty() and _hand.size() < HAND_CAP:
 		_hand.add_card(_pool.pick_random())
 	if not any_acted:
-		_last_attack_label.text = "Sin enemigos vivos. Turno %d." % _turn_number
+		_log("Sin enemigos vivos. Turno %d." % _turn_number, "aabb88")
+	_refresh_hud()
 
 
-# Chequea cada vez que el state combate puede haber cambiado: ataque del
-# jugador, drop de carta, intent enemigo, end turn.
+func _enemy_executes_intent() -> void:
+	if _combat_ended or _battlefield == null:
+		return
+	var enemy := _battlefield.first_alive_enemy()
+	if enemy == null:
+		_log("No hay enemigos vivos.", "aaaaaa")
+		return
+	var target := _battlefield.first_alive_hero()
+	var result := CombatResolver.resolve_enemy_attack(target, enemy.intent_damage)
+	_report_enemy_attack(enemy, result)
+	_battlefield.remove_dead_heroes()
+	_check_combat_outcome()
+	_refresh_hud()
+
+
+func _player_attacks_enemy(damage: int) -> void:
+	if _combat_ended or _battlefield == null:
+		return
+	var enemy := _battlefield.first_alive_enemy()
+	if enemy == null:
+		_log("No hay enemigos vivos para atacar.", "aaaaaa")
+		return
+	var result := CombatResolver.resolve_player_attack(enemy, damage)
+	_report_player_attack(enemy, result)
+	_check_combat_outcome()
+	_refresh_hud()
+
+
+func _report_enemy_attack(enemy: EnemyInstance, result: Dictionary) -> void:
+	var incoming: int = int(result["incoming_damage"])
+	if result["target"] == null:
+		_log("[b]%s[/b] pega %d → SIN HÉROE → vos recibís %d (×2)" % [
+			enemy.enemy_name, incoming, int(result["player_damage"])
+		], "ff8866")
+		return
+	var hero: HeroInstance = result["target"]
+	var line := "[b]%s[/b] pega %d → %s recibe %d" % [
+		enemy.enemy_name, incoming, hero.data.card_name, int(result["hero_damage"])
+	]
+	if int(result["player_damage"]) > 0:
+		line += "  ·  overflow al jugador: %d" % int(result["player_damage"])
+	if bool(result["hero_died"]):
+		line += "  ·  ✖ %s caído" % hero.data.card_name
+	_log(line, "ffbb88")
+
+
+func _report_player_attack(enemy: EnemyInstance, result: Dictionary) -> void:
+	var line := "Vos pegás %d → %s recibe %d" % [
+		int(result["incoming_damage"]),
+		enemy.enemy_name,
+		int(result["enemy_damage"]),
+	]
+	if bool(result["enemy_died"]):
+		line += "  ·  ✖ derrotado"
+	_log(line, "88dd99")
+
+
+# ──────────────────────────────────────────────────────────────────
+# OUTCOME
+# ──────────────────────────────────────────────────────────────────
+
+
 func _check_combat_outcome() -> void:
 	if _combat_ended:
 		return
@@ -409,22 +674,17 @@ func _check_combat_outcome() -> void:
 		return
 	var enemies := _battlefield.enemies()
 	if enemies.is_empty():
-		return  # escena sin enemigos (modo testing) — no es victoria
-	var any_alive := false
+		return
 	for e in enemies:
 		if e.is_alive():
-			any_alive = true
-			break
-	if not any_alive:
-		_trigger_victory()
+			return
+	_trigger_victory()
 
 
 func _trigger_victory() -> void:
 	_combat_ended = true
-	# Drop de minerales por enemigo derrotado (§6.7). Se mapean por la facción
-	# del enemy_dict del world.
 	var world := RunState.ensure_world()
-	var msg := "VICTORIA. Drops:"
+	var msg := "[b]VICTORIA[/b]. Drops:"
 	var any_drop := false
 	for id in RunState.pending_combat_enemy_ids:
 		for enemy_dict in world.enemies:
@@ -433,61 +693,70 @@ func _trigger_victory() -> void:
 				if f != CardData.Faction.NONE:
 					var amt := 2 + randi() % 3
 					RunState.gain_minerals(f, amt)
-					msg += " +%d %s" % [amt, MineralBag.mineral_name(f)]
+					msg += "  +%d %s" % [amt, MineralBag.mineral_name(f)]
 					any_drop = true
 				break
 	if not any_drop:
-		msg += " (sin minerales)"
-	_last_attack_label.text = msg
-	_help_label.text = "VICTORIA — apretá Q para volver a explorar"
+		msg += "  (sin minerales)"
+	_log(msg, "88dd99")
+	_log("Apretá [b]Q[/b] para volver a explorar.", "ddffaa")
 	RunState.last_combat_outcome = RunState.CombatOutcome.VICTORY
 
 
 func _trigger_defeat() -> void:
 	_combat_ended = true
-	_last_attack_label.text = "Te derrotaron."
-	_help_label.text = "DERROTADO — apretá Q para reiniciar la run"
+	_log("[b]DERROTADO.[/b] Apretá Q para reiniciar la run.", "ff6666")
 	RunState.last_combat_outcome = RunState.CombatOutcome.DEFEAT
 
 
 func _return_to_exploration() -> void:
-	# Si el combate no terminó formalmente, lo abortamos: el enemigo del
-	# mundo queda intacto. Si terminó (victoria/derrota), exploration aplica
-	# las consecuencias al cargar.
 	if not _combat_ended:
 		RunState.last_combat_outcome = RunState.CombatOutcome.ABORTED
 	get_tree().change_scene_to_file("res://scenes/exploration/exploration.tscn")
 
 
+# ──────────────────────────────────────────────────────────────────
+# UI ACTIONS
+# ──────────────────────────────────────────────────────────────────
+
+
+func _on_pause_pressed() -> void:
+	# Placeholder — el menú de pausa real es post-jam.
+	_log("Pausa: sin menú implementado todavía.", "888888")
+
+
 func _toggle_active_hero() -> void:
-	if _active_hero != null:
-		_set_active_hero(null)
+	if _battlefield == null:
 		return
-	# Restaurar el primer héroe del pool (reinstanciado a HP completo).
-	for card in _pool:
-		if card.type == CardData.Type.HERO:
-			_set_active_hero(HeroInstance.new(card))
-			return
+	if _battlefield.heroes().size() > 0:
+		_battlefield.clear_heroes()
+		return
+	_auto_summon_signature()
 
 
 func _cycle_enemy_intent() -> void:
-	var enemy: EnemyInstance = _battlefield.first_alive_enemy() if _battlefield != null else null
+	var enemy := _battlefield.first_alive_enemy() if _battlefield != null else null
 	if enemy == null:
 		return
 	_intent_cycle_index = (_intent_cycle_index + 1) % _INTENT_CYCLE.size()
 	enemy.set_intent(_INTENT_CYCLE[_intent_cycle_index])
+	_refresh_hud()
+
+
+# ──────────────────────────────────────────────────────────────────
+# INPUT (atajos de testing)
+# ──────────────────────────────────────────────────────────────────
 
 
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
-	# Mineral hotkeys (1..6).
 	if _MINERAL_HOTKEYS.has(event.keycode):
 		RunState.gain_minerals(_MINERAL_HOTKEYS[event.keycode], 2)
 		return
 	match event.keycode:
 		KEY_SPACE:
-			if not _pool.is_empty():
+			if not _pool.is_empty() and _hand.size() < HAND_CAP:
 				_hand.add_card(_pool.pick_random())
 		KEY_BACKSPACE:
 			if _hand.size() > 0:
@@ -510,7 +779,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		KEY_O:
 			_toggle_active_hero()
 		KEY_E:
-			_spawn_default_enemy()
+			_spawn_pending_or_default_enemies()
+			_refresh_hud()
 		KEY_T:
 			_end_player_turn()
 		KEY_Q:

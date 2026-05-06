@@ -59,7 +59,10 @@ static func _summon(card: CardData, context: Dictionary) -> Dictionary:
 	if not cb.is_valid():
 		return { "ok": false, "message": "Sin handler de invocación" }
 	var hero := HeroInstance.new(card)
-	cb.call(hero)
+	# El callback devuelve bool: false = battlefield rechazó (campo lleno).
+	var summoned: bool = cb.call(hero)
+	if not summoned:
+		return { "ok": false, "message": "Campo de héroes lleno (3/3)" }
 	return { "ok": true, "message": "Invocaste a %s" % card.card_name }
 
 
