@@ -6,7 +6,10 @@ extends Node2D
 # acá hasta que exista la mecánica completa de "carta en juego" §7.7).
 #
 # Visual: stack de rectángulos para sugerir profundidad, la carta superior
-# muestra nombre y color de facción.
+# muestra nombre y color de facción. Click derecho abre la modal de detalle
+# con la última carta del descarte.
+
+signal inspect_requested(card: CardData)
 
 const W: float = 100.0
 const H: float = 140.0
@@ -22,7 +25,28 @@ var _count_label: Label
 
 func _ready() -> void:
 	_build()
+	_build_input_area()
 	_refresh()
+
+
+func _build_input_area() -> void:
+	var area := Area2D.new()
+	area.name = "InputArea"
+	area.input_pickable = true
+	area.input_event.connect(_on_input_event)
+	add_child(area)
+	var shape := CollisionShape2D.new()
+	var rect := RectangleShape2D.new()
+	rect.size = Vector2(W, H)
+	shape.shape = rect
+	area.add_child(shape)
+
+
+func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	if event.button_index == MOUSE_BUTTON_RIGHT and _last_card != null:
+		inspect_requested.emit(_last_card)
 
 
 func _draw() -> void:

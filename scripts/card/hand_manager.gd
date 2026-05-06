@@ -10,6 +10,12 @@ signal card_dropped(card: CardData, drop_position: Vector2, view: CardView)
 # las usa para alimentar el preview fijo (ver `CardPreviewView`).
 signal card_hover_started(card: CardData)
 signal card_hover_ended()
+# Disparada al click derecho sobre una carta. El caller abre la modal.
+signal card_inspect_requested(card: CardData)
+# Re-emitidas cuando una carta inicia/termina el drag. main.gd las usa para
+# encender/apagar el highlight de drop targets y la flecha apuntadora.
+signal card_drag_started(card: CardData, view: CardView)
+signal card_drag_ended()
 
 @export var hand_width: float = 720.0
 @export var card_spacing: float = 110.0
@@ -34,6 +40,8 @@ func add_card(card: CardData) -> void:
 	view.hover_started.connect(_on_card_hover_started)
 	view.hover_ended.connect(_on_card_hover_ended)
 	view.dropped.connect(_on_card_view_dropped)
+	view.inspect_requested.connect(_on_card_view_inspect_requested)
+	view.drag_started.connect(_on_card_view_drag_started)
 	add_child(view)
 	_views.append(view)
 	_relayout()
@@ -65,9 +73,25 @@ func remove_view(view: CardView) -> void:
 
 func _on_card_view_dropped(view: CardView, drop_position: Vector2) -> void:
 	var idx := _views.find(view)
+	if idx >= 0:
+		card_dropped.emit(_data[idx], drop_position, view)
+	# Siempre notificamos drag_ended para que el caller limpie highlight/arrow
+	# aun si la view se removió mientras dragueaba (edge case).
+	card_drag_ended.emit()
+
+
+func _on_card_view_drag_started(view: CardView) -> void:
+	var idx := _views.find(view)
 	if idx == -1:
 		return
-	card_dropped.emit(_data[idx], drop_position, view)
+	card_drag_started.emit(_data[idx], view)
+
+
+func _on_card_view_inspect_requested(view: CardView) -> void:
+	var idx := _views.find(view)
+	if idx == -1:
+		return
+	card_inspect_requested.emit(_data[idx])
 
 
 func _relayout() -> void:

@@ -3,17 +3,21 @@ extends Node2D
 
 signal hover_started(view: CardView)
 signal hover_ended(view: CardView)
+# Disparada cuando empieza el drag (left-click + start drag).
+signal drag_started(view: CardView)
 # Disparada al soltar el botón izquierdo después de un drag — incluso si el
 # release ocurre fuera del Area2D. drop_position es la posición global del
 # mouse en ese instante.
 signal dropped(view: CardView, drop_position: Vector2)
+# Disparada al click derecho. El caller abre la ventana modal de detalle.
+signal inspect_requested(view: CardView)
 
 const CARD_WIDTH: float = 110.0
 const CARD_HEIGHT: float = 154.0
 
 @export var follow_speed: float = 18.0
-@export var hover_scale: float = 1.18
-@export var hover_lift: float = -45.0
+@export var hover_scale: float = 1.20
+@export var hover_lift: float = -85.0
 @export var drag_follow_speed: float = 26.0
 @export var tilt_strength: float = 0.0009
 @export var max_drag_tilt: float = 0.55
@@ -185,9 +189,15 @@ func _on_mouse_exited() -> void:
 
 
 func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> void:
-	# Solo detectamos el press acá. El release se escucha globalmente en
+	if not (event is InputEventMouseButton and event.pressed):
+		return
+	# Right click → ventana modal de detalle.
+	if event.button_index == MOUSE_BUTTON_RIGHT:
+		inspect_requested.emit(self)
+		return
+	# Left click → inicia drag. El release se escucha globalmente en
 	# _unhandled_input para no perderlo si el mouse salió del Area2D.
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+	if event.button_index == MOUSE_BUTTON_LEFT:
 		# Si ya hay otra carta draggeándose, ignoramos. Combinado con
 		# Viewport.physics_object_picking_first_only, esto garantiza que un
 		# click sobre cartas solapadas solo agarra la de arriba.
@@ -196,6 +206,7 @@ func _on_input_event(_viewport: Node, event: InputEvent, _shape_idx: int) -> voi
 		_global_drag_owner = self
 		_is_dragging = true
 		_drag_offset = global_position - get_global_mouse_position()
+		drag_started.emit(self)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -214,3 +225,23 @@ func _unhandled_input(event: InputEvent) -> void:
 func _exit_tree() -> void:
 	if _global_drag_owner == self:
 		_global_drag_owner = null
+
+
+# Animación de "carta jugada": detiene el follow al slot y mueve la carta
+# hacia un destino con tween + scale down + rotación leve. Llama on_done al
+# terminar para que el caller la remueva de la mano y la sume al descarte.
+func play_to(target_global: Vector2, on_done: Callable = Callable()) -> void:
+	target_node = null
+	_is_dragging = false
+	if _global_drag_owner == self:
+		_global_drag_owner = null
+	var tween := create_tween()
+	tween.set_parallel(true)
+	tween.tween_property(self, "global_position", target_global, 0.32) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(self, "scale", Vector2(0.55, 0.55), 0.32) \
+		.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+	tween.tween_property(self, "rotation", randf_range(-0.6, 0.6), 0.32) \
+		.set_trans(Tween.TRANS_SINE)
+	if on_done.is_valid():
+		tween.chain().tween_callback(on_done)

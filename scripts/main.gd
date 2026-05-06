@@ -27,12 +27,12 @@ const BATTLEFIELD_POS := Vector2(640.0, 350.0)
 const COMBAT_LOG_POS := Vector2(240.0, 64.0)
 const COMBAT_LOG_SIZE := Vector2(820.0, 102.0)
 const TUTORIAL_AREA := Rect2(16.0, 64.0, 200.0, 130.0)
-const EYE_CANDY_AREA := Rect2(240.0, 180.0, 820.0, 290.0)
+const EYE_CANDY_AREA := Rect2(240.0, 180.0, 820.0, 250.0)
 const DEV_AREA := Rect2(1064.0, 64.0, 200.0, 130.0)
-const DECK_STACK_POS := Vector2(60.0, 580.0)
-const DISCARD_STACK_POS := Vector2(60.0, 680.0)
-const CARD_PREVIEW_RECT := Rect2(130.0, 540.0, 130.0, 170.0)
-const NEXT_TURN_BUTTON_RECT := Rect2(1110.0, 540.0, 150.0, 50.0)
+const DECK_STACK_POS := Vector2(60.0, 470.0)
+const DISCARD_STACK_POS := Vector2(60.0, 590.0)
+const CARD_PREVIEW_RECT := Rect2(140.0, 450.0, 160.0, 260.0)
+const NEXT_TURN_BUTTON_RECT := Rect2(1110.0, 530.0, 150.0, 60.0)
 const PAUSE_BUTTON_RECT := Rect2(1190.0, 12.0, 80.0, 30.0)
 const FOOTER_RECT := Rect2(0.0, 700.0, 1280.0, 20.0)
 
@@ -54,9 +54,15 @@ const _INTENT_CYCLE: Array[int] = [3, 5, 8, 12]
 var _pool: Array[CardData] = []
 var _battlefield: Battlefield
 var _discard_pile: DiscardPileView
+var _drag_arrow: DragArrowOverlay
+var _dragging_card: CardData
 var _turn_number: int = 1
 var _intent_cycle_index: int = 1
 var _combat_ended: bool = false
+# Mientras se está reproduciendo la secuencia de turnos enemigos, este es
+# el enemigo cuyo turno está activo. null = turno del jugador.
+var _acting_enemy: EnemyInstance
+var _enemy_turn_in_progress: bool = false
 
 # HUD nodes
 var _top_info_label: Label
@@ -87,12 +93,19 @@ func _ready() -> void:
 	_hand.card_dropped.connect(_on_card_dropped)
 	_hand.card_hover_started.connect(_on_hand_card_hover_started)
 	_hand.card_hover_ended.connect(_on_hand_card_hover_ended)
+	_hand.card_inspect_requested.connect(_open_card_detail_modal)
+	_hand.card_drag_started.connect(_on_card_drag_started)
+	_hand.card_drag_ended.connect(_on_card_drag_ended)
+	if _discard_pile != null:
+		_discard_pile.inspect_requested.connect(_open_card_detail_modal)
 	if _pool.is_empty():
 		push_warning("Main: no hay cartas en el JSON")
 	else:
 		for i in 5:
 			_hand.add_card(_pool.pick_random())
 	_refresh_hud()
+	# _process se enciende solo cuando hay drag activo (ver _on_card_drag_*).
+	set_process(false)
 
 
 func _setup_picking() -> void:
@@ -114,6 +127,10 @@ func _build_battlefield() -> void:
 	_discard_pile.name = "DiscardPile"
 	_discard_pile.position = DISCARD_STACK_POS
 	add_child(_discard_pile)
+
+	_drag_arrow = DragArrowOverlay.new()
+	_drag_arrow.name = "DragArrow"
+	add_child(_drag_arrow)
 
 
 func _build_hud() -> void:
@@ -376,6 +393,47 @@ func _on_hand_card_hover_ended() -> void:
 		_card_preview.clear_card()
 
 
+func _open_card_detail_modal(card: CardData) -> void:
+	if card == null:
+		return
+	# Cerramos cualquier modal previo para evitar pilas.
+	for child in get_children():
+		if child is CardDetailModal:
+			child.queue_free()
+	var modal := CardDetailModal.new()
+	modal.card = card
+	add_child(modal)
+
+
+# Highlight de drop targets + flecha apuntadora durante el drag de una carta.
+func _on_card_drag_started(card: CardData, _view: CardView) -> void:
+	_dragging_card = card
+	_battlefield.set_drop_highlight(card.type, EffectExecutor.target_kind_for(card))
+	set_process(true)
+
+
+func _on_card_drag_ended() -> void:
+	_dragging_card = null
+	if _battlefield != null:
+		_battlefield.clear_drop_highlight()
+	if _drag_arrow != null:
+		_drag_arrow.clear()
+	set_process(false)
+
+
+func _process(_delta: float) -> void:
+	if _dragging_card == null or _drag_arrow == null:
+		return
+	var mouse := get_global_mouse_position()
+	# Origin de la flecha: justo encima del HandManager (la mano), x del mouse.
+	var origin := Vector2(mouse.x, _hand.global_position.y - 80.0)
+	var targets := _battlefield.slot_positions_for_drop(
+		_dragging_card.type,
+		EffectExecutor.target_kind_for(_dragging_card),
+	)
+	_drag_arrow.update_drag(origin, mouse, targets)
+
+
 func _refresh_minerals() -> void:
 	var bb := ""
 	for f in CardData.Faction.values():
@@ -397,25 +455,31 @@ func _refresh_deck_count() -> void:
 func _refresh_turn_queue() -> void:
 	for child in _turn_queue_box.get_children():
 		child.queue_free()
-	# Arma una secuencia: VOS → cada enemigo vivo en orden → VOS → ...
-	var alive_enemies: Array[String] = []
+	# Construye la secuencia base: VOS + cada enemigo vivo en orden.
+	var alive_enemies: Array[EnemyInstance] = []
 	if _battlefield != null:
 		for e in _battlefield.enemies():
 			if e.is_alive():
-				alive_enemies.append(e.enemy_name)
+				alive_enemies.append(e)
 	var seq: Array[Dictionary] = []
 	seq.append({"label": "VOS", "is_player": true})
-	for n in alive_enemies:
-		seq.append({"label": n.to_upper(), "is_player": false})
-	# Si la secuencia es corta, repetimos hasta llenar TURN_QUEUE_PEEK.
+	for e in alive_enemies:
+		seq.append({"label": e.enemy_name.to_upper(), "is_player": false, "ref": e})
 	if seq.is_empty():
 		return
-	var i := 0
-	for _k in TURN_QUEUE_PEEK:
-		var item: Dictionary = seq[i % seq.size()]
-		var pill := _make_turn_pill(String(item["label"]), bool(item["is_player"]), _k == 0)
+	# Si está actuando un enemigo, rotamos la secuencia para que ese sea el
+	# primero (el "actual"), seguido de los demás enemigos restantes y
+	# después VOS para el próximo turno.
+	var start_idx := 0
+	if _acting_enemy != null:
+		for i in seq.size():
+			if seq[i].get("ref") == _acting_enemy:
+				start_idx = i
+				break
+	for k in TURN_QUEUE_PEEK:
+		var item: Dictionary = seq[(start_idx + k) % seq.size()]
+		var pill := _make_turn_pill(String(item["label"]), bool(item["is_player"]), k == 0)
 		_turn_queue_box.add_child(pill)
-		i += 1
 
 
 func _make_turn_pill(text: String, is_player: bool, is_current: bool) -> Control:
@@ -517,46 +581,58 @@ func _spawn_pending_or_default_enemies() -> void:
 func _on_card_dropped(card: CardData, drop_position: Vector2, view: CardView) -> void:
 	if _combat_ended:
 		return
-	var context := _build_drop_context(card, drop_position)
-	if context.is_empty():
+	# null = drop inválido. Dict (incluso vacío) = drop válido. Las cartas
+	# heal_player y gain_minerals legítimamente devuelven {} porque no
+	# necesitan target — distinto de "wrong drop".
+	var context: Variant = _build_drop_context(card, drop_position)
+	if context == null:
 		_log(_drop_invalid_message(card), "ffaa55")
 		return
-	var result := EffectExecutor.execute(card, context)
+	var result := EffectExecutor.execute(card, context as Dictionary)
 	_log(String(result["message"]), "cccccc" if bool(result["ok"]) else "ff8866")
 	if bool(result["ok"]):
-		_hand.remove_view(view)
-		if _discard_pile != null:
-			_discard_pile.add_card(card)
+		# Animación: la carta vuela al descarte, después se remueve y se
+		# agrega al pile. El estado de combate ya se aplicó (effect ya corrió).
+		var view_ref := view
+		var card_ref := card
+		var discard_pos := _discard_pile.global_position if _discard_pile != null else view.global_position
+		view.play_to(discard_pos, func():
+			_hand.remove_view(view_ref)
+			if _discard_pile != null:
+				_discard_pile.add_card(card_ref)
+		)
 		_check_combat_outcome()
 		_refresh_hud()
 
 
-func _build_drop_context(card: CardData, drop_position: Vector2) -> Dictionary:
+# Devuelve null si el drop no es válido para esta carta, o un Dictionary
+# (posiblemente vacío) con el context para EffectExecutor si es válido.
+func _build_drop_context(card: CardData, drop_position: Vector2) -> Variant:
 	var kind := EffectExecutor.target_kind_for(card)
 	if card.type == CardData.Type.HERO:
-		# Drop sobre el battlefield o sobre algún hero slot → invocar.
 		if not (_battlefield.is_over_battlefield(drop_position) or _battlefield.is_over_hero_slot(drop_position)):
-			return {}
+			return null
 		if _battlefield.is_full_of_heroes():
-			return {}
+			return null
 		return { "summon_callback": Callable(self, "_summon_hero_callback") }
 	match kind:
 		EffectExecutor.TargetKind.ENEMY:
 			var enemy := _battlefield.enemy_at(drop_position)
 			if enemy == null:
-				return {}
+				return null
 			return { "target_enemy": enemy }
 		EffectExecutor.TargetKind.HERO_SELF:
 			var hero := _battlefield.first_alive_hero()
 			if hero == null:
-				return {}
+				return null
 			if not (_battlefield.is_over_hero_slot(drop_position) or _battlefield.is_over_battlefield(drop_position)):
-				return {}
+				return null
 			return { "active_hero": hero }
 		EffectExecutor.TargetKind.NONE, _:
 			if not _battlefield.is_over_battlefield(drop_position):
-				return {}
+				return null
 			return {}
+	return null
 
 
 # Callback que EffectExecutor llama al jugar una HERO. Devuelve bool para que
@@ -585,32 +661,48 @@ func _drop_invalid_message(card: CardData) -> String:
 
 
 func _end_player_turn() -> void:
-	if _battlefield == null or _combat_ended:
+	if _battlefield == null or _combat_ended or _enemy_turn_in_progress:
 		return
-	# Cada enemigo vivo ejecuta intent (§6.5).
+	_enemy_turn_in_progress = true
+	if _next_turn_button != null:
+		_next_turn_button.disabled = true
+	# Cada enemigo vivo ejecuta intent (§6.5), uno a la vez con delay para
+	# que la cola de turnos se vea avanzar.
 	var enemies := _battlefield.enemies()
 	var any_acted := false
 	for enemy in enemies:
 		if not enemy.is_alive():
 			continue
 		any_acted = true
+		_acting_enemy = enemy
+		_refresh_turn_queue()
+		await get_tree().create_timer(0.45).timeout
+		# El estado del juego puede haber cambiado durante el await
+		# (e.g., otro effect desencadenó algo).
+		if _combat_ended or not enemy.is_alive():
+			continue
 		var target := _battlefield.first_alive_hero()
 		var result := CombatResolver.resolve_enemy_attack(target, enemy.intent_damage)
 		_report_enemy_attack(enemy, result)
 		_battlefield.remove_dead_heroes()
 		_check_combat_outcome()
 		if _combat_ended:
-			return
-	# Recalcular intents.
+			break
+	_acting_enemy = null
+	# Recalcular intents para el próximo turno.
 	for enemy in enemies:
 		if enemy.is_alive():
 			enemy.set_intent(randi_range(ENEMY_INTENT_MIN, ENEMY_INTENT_MAX))
-	# Inicio del próximo turno: draw 1 (§6.2).
-	_turn_number += 1
-	if not _pool.is_empty() and _hand.size() < HAND_CAP:
-		_hand.add_card(_pool.pick_random())
-	if not any_acted:
-		_log("Sin enemigos vivos. Turno %d." % _turn_number, "aabb88")
+	if not _combat_ended:
+		# Inicio del próximo turno: draw 1 (§6.2).
+		_turn_number += 1
+		if not _pool.is_empty() and _hand.size() < HAND_CAP:
+			_hand.add_card(_pool.pick_random())
+		if not any_acted:
+			_log("Sin enemigos vivos. Turno %d." % _turn_number, "aabb88")
+	_enemy_turn_in_progress = false
+	if _next_turn_button != null and not _combat_ended:
+		_next_turn_button.disabled = false
 	_refresh_hud()
 
 
@@ -731,8 +823,18 @@ func _return_to_exploration() -> void:
 
 
 func _on_pause_pressed() -> void:
-	# Placeholder — el menú de pausa real es post-jam.
-	_log("Pausa: sin menú implementado todavía.", "888888")
+	for child in get_children():
+		if child is PauseMenu:
+			return  # ya hay un menú abierto
+	var menu := PauseMenu.new()
+	menu.restart_requested.connect(_on_pause_restart_requested)
+	menu.back_to_exploration_requested.connect(_return_to_exploration)
+	add_child(menu)
+
+
+func _on_pause_restart_requested() -> void:
+	RunState.reset_run()
+	_return_to_exploration()
 
 
 func _toggle_active_hero() -> void:

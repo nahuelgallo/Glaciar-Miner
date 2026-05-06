@@ -8,8 +8,8 @@ extends Node2D
 # Coexiste con el drag de la carta: cuando arrastrás, el preview sigue
 # mostrando los detalles de la carta arrastrada hasta que la sueltes.
 
-const W: float = 130.0
-const H: float = 170.0
+const W: float = 160.0
+const H: float = 260.0
 
 var _current_card: CardData
 

@@ -8,7 +8,8 @@ extends Node2D
 # se invoca un nuevo HERO, ocupa el primer slot vacío. Si los 3 están llenos,
 # la invocación falla.
 
-const HERO_SLOT_X: float = -540.0
+const PLAYER_SLOT_X: float = -560.0
+const HERO_SLOT_X: float = -380.0
 const ENEMY_SLOT_X: float = 540.0
 const SLOT_Y_TOP: float = -115.0
 const SLOT_Y_SPACING: float = 110.0
@@ -19,6 +20,19 @@ var _enemies: Array[EnemyInstance] = []
 var _enemy_views: Array[EnemyView] = []
 var _heroes: Array[HeroInstance] = []
 var _hero_views: Array[HeroFieldView] = []
+var _player_view: PlayerView
+
+# Highlight de drop targets durante drag de carta. -1 = inactivo.
+var _highlight_card_type: int = -1
+var _highlight_target_kind: int = -1
+
+
+func _ready() -> void:
+	# El Minero (jugador) siempre está en su columna a la izquierda. Es la
+	# representación visual del HP global de la run (§6.6).
+	_player_view = PlayerView.new()
+	_player_view.position = Vector2(PLAYER_SLOT_X, 0.0)
+	add_child(_player_view)
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -148,18 +162,37 @@ func is_over_hero_slot(world_pos: Vector2) -> bool:
 	return false
 
 
-# Área general del battlefield (zona del centro entre las dos columnas).
-# Drops sobre esta zona son válidos para cartas que no requieren target.
+# Área general del battlefield. Cubre TODO el "campo de juego" según mockup:
+# desde la columna de héroes (incluida) hasta la columna de enemigos
+# (incluida), verticalmente entre el top bar y el bottom area. Drops
+# sobre esta zona son válidos para cartas TargetKind.NONE.
 func is_over_battlefield(world_pos: Vector2) -> bool:
-	var center_left: float = global_position.x + HERO_SLOT_X + HeroFieldView.W * 0.5 + 20.0
-	var center_right: float = global_position.x + ENEMY_SLOT_X - EnemyView.W * 0.5 - 20.0
-	var top: float = global_position.y + SLOT_Y_TOP - HeroFieldView.H * 0.5
-	var bottom: float = global_position.y + SLOT_Y_TOP + SLOT_Y_SPACING * float(MAX_HEROES - 1) + HeroFieldView.H * 0.5
-	var rect := Rect2(
-		Vector2(center_left, top),
-		Vector2(center_right - center_left, bottom - top)
-	)
+	var pad := 30.0
+	var left: float = global_position.x + PLAYER_SLOT_X - PlayerView.W * 0.5 - pad
+	var right: float = global_position.x + ENEMY_SLOT_X + EnemyView.W * 0.5 + pad
+	var top: float = global_position.y + SLOT_Y_TOP - PlayerView.H * 0.5 - pad
+	var bottom: float = global_position.y + SLOT_Y_TOP + SLOT_Y_SPACING * float(MAX_HEROES - 1) + PlayerView.H * 0.5 + pad
+	var rect := Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
 	return rect.has_point(world_pos)
+
+
+# Lista de positions globales de cada slot (para drag arrow targeting).
+func slot_positions_for_drop(card_type: int, target_kind: int) -> Array[Vector2]:
+	var positions: Array[Vector2] = []
+	if card_type == CardData.Type.HERO:
+		# Posiciones de los slots vacíos (los llenos no son target válido).
+		for i in range(_heroes.size(), MAX_HEROES):
+			positions.append(global_position + Vector2(HERO_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i)))
+		return positions
+	if target_kind == EffectExecutor.TargetKind.ENEMY:
+		# Posiciones de enemigos vivos.
+		for i in _enemies.size():
+			if _enemies[i].is_alive():
+				positions.append(_enemy_views[i].global_position)
+		return positions
+	# Default: centro del battlefield.
+	positions.append(global_position)
+	return positions
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -177,19 +210,67 @@ func _relayout_heroes() -> void:
 		_hero_views[i].position = Vector2(HERO_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i))
 
 
-# Outlines de slots vacíos para que el jugador vea dónde puede invocar /
-# dónde podría aparecer un nuevo enemigo. Se dibuja antes que los views
-# (los views son hijos y se renderizan después).
+# Outlines de slots vacíos + highlight de drop targets durante el drag.
 func _draw() -> void:
+	# Highlight overlay para "drop sobre área general" (TargetKind.NONE)
+	if _highlight_target_kind == EffectExecutor.TargetKind.NONE and _highlight_card_type != CardData.Type.HERO:
+		_draw_battlefield_highlight()
+	# Slots vacíos
 	for i in range(_heroes.size(), MAX_HEROES):
 		var pos := Vector2(HERO_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i))
 		_draw_empty_slot(pos, HeroFieldView.W, HeroFieldView.H)
+		# HERO arrastrada → resaltar slots de héroe vacíos
+		if _highlight_card_type == CardData.Type.HERO:
+			_draw_highlight_border(pos, HeroFieldView.W, HeroFieldView.H, Color(0.55, 0.95, 0.65))
 	for i in range(_enemies.size(), MAX_ENEMIES):
 		var pos := Vector2(ENEMY_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i))
 		_draw_empty_slot(pos, EnemyView.W, EnemyView.H)
+	# ENEMY target → resaltar enemigos vivos
+	if _highlight_target_kind == EffectExecutor.TargetKind.ENEMY:
+		for i in _enemies.size():
+			if _enemies[i].is_alive():
+				var pos := Vector2(ENEMY_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i))
+				_draw_highlight_border(pos, EnemyView.W, EnemyView.H, Color(0.95, 0.55, 0.55))
+	# HERO_SELF target → resaltar héroes vivos
+	if _highlight_target_kind == EffectExecutor.TargetKind.HERO_SELF:
+		for i in _heroes.size():
+			if _heroes[i].is_alive():
+				var pos := Vector2(HERO_SLOT_X, SLOT_Y_TOP + SLOT_Y_SPACING * float(i))
+				_draw_highlight_border(pos, HeroFieldView.W, HeroFieldView.H, Color(0.55, 0.95, 0.65))
 
 
 func _draw_empty_slot(center: Vector2, w: float, h: float) -> void:
 	var rect := Rect2(center - Vector2(w, h) * 0.5, Vector2(w, h))
 	draw_rect(rect, Color(0.13, 0.15, 0.18, 0.8))
 	draw_rect(rect, Color(0.30, 0.32, 0.36), false, 1.5)
+
+
+func _draw_highlight_border(center: Vector2, w: float, h: float, color: Color) -> void:
+	# Border externo grueso para indicar "target válido"
+	var pad := 5.0
+	var rect := Rect2(center - Vector2(w + pad * 2.0, h + pad * 2.0) * 0.5, Vector2(w + pad * 2.0, h + pad * 2.0))
+	draw_rect(rect, color, false, 3.0)
+
+
+func _draw_battlefield_highlight() -> void:
+	# Highlight de TODO el campo de juego (matchea el área del mockup en rosa).
+	var pad := 30.0
+	var left: float = PLAYER_SLOT_X - PlayerView.W * 0.5 - pad
+	var right: float = ENEMY_SLOT_X + EnemyView.W * 0.5 + pad
+	var top: float = SLOT_Y_TOP - PlayerView.H * 0.5 - pad
+	var bottom: float = SLOT_Y_TOP + SLOT_Y_SPACING * float(MAX_HEROES - 1) + PlayerView.H * 0.5 + pad
+	var rect := Rect2(Vector2(left, top), Vector2(right - left, bottom - top))
+	draw_rect(rect, Color(0.55, 0.95, 0.65, 0.10))
+	draw_rect(rect, Color(0.55, 0.95, 0.65, 0.6), false, 2.0)
+
+
+func set_drop_highlight(card_type: int, target_kind: int) -> void:
+	_highlight_card_type = card_type
+	_highlight_target_kind = target_kind
+	queue_redraw()
+
+
+func clear_drop_highlight() -> void:
+	_highlight_card_type = -1
+	_highlight_target_kind = -1
+	queue_redraw()
