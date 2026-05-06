@@ -6,20 +6,18 @@ extends Node2D
 # salir de la mano.
 signal card_dropped(card: CardData, drop_position: Vector2, view: CardView)
 
+# Re-emitidas cuando el mouse entra/sale de una carta de la mano. El caller
+# las usa para alimentar el preview fijo (ver `CardPreviewView`).
+signal card_hover_started(card: CardData)
+signal card_hover_ended()
+
 @export var hand_width: float = 720.0
 @export var card_spacing: float = 110.0
-@export var tooltip_offset: Vector2 = Vector2(0.0, 100.0)
 
 var _slots: Array[Node2D] = []
 var _views: Array[CardView] = []
 var _data: Array[CardData] = []
-var _tooltip: CardTooltip
 var _hovered_view: CardView
-
-
-func _ready() -> void:
-	_tooltip = CardTooltip.new()
-	add_child(_tooltip)
 
 
 func add_card(card: CardData) -> void:
@@ -46,7 +44,7 @@ func remove_card(index: int) -> void:
 		return
 	if _views[index] == _hovered_view:
 		_hovered_view = null
-		_tooltip.hide()
+		card_hover_ended.emit()
 	_data.remove_at(index)
 	_slots[index].queue_free()
 	_slots.remove_at(index)
@@ -95,17 +93,13 @@ func _on_card_hover_started(view: CardView) -> void:
 	if idx == -1 or view.data == null:
 		return
 	_hovered_view = view
-	_tooltip.show_for(view.data)
-	# Tooltip se dibuja desde su top-left, así que centramos en x bajo la carta.
-	var slot_pos: Vector2 = _slots[idx].global_position
-	var top_left: Vector2 = slot_pos + tooltip_offset - Vector2(CardTooltip.PANEL_WIDTH * 0.5, 0.0)
-	_tooltip.global_position = top_left
+	card_hover_started.emit(view.data)
 
 
 # Solo escondemos si la carta que sale del hover es la que estaba mostrando
-# tooltip — protege contra el orden no garantizado de exit/enter al pasar
+# preview — protege contra el orden no garantizado de exit/enter al pasar
 # rápido entre cartas adyacentes.
 func _on_card_hover_ended(view: CardView) -> void:
 	if view == _hovered_view:
 		_hovered_view = null
-		_tooltip.hide()
+		card_hover_ended.emit()

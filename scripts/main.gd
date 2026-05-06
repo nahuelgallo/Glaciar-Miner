@@ -66,7 +66,7 @@ var _pause_button: Button
 var _next_turn_button: Button
 var _combat_log: RichTextLabel
 var _deck_count_label: Label
-var _card_preview_label: Label
+var _card_preview: CardPreviewView
 var _help_footer_label: Label
 
 
@@ -85,6 +85,8 @@ func _ready() -> void:
 	_spawn_pending_or_default_enemies()
 	_hand.position = Vector2(680.0, 615.0)
 	_hand.card_dropped.connect(_on_card_dropped)
+	_hand.card_hover_started.connect(_on_hand_card_hover_started)
+	_hand.card_hover_ended.connect(_on_hand_card_hover_ended)
 	if _pool.is_empty():
 		push_warning("Main: no hay cartas en el JSON")
 	else:
@@ -202,13 +204,13 @@ func _build_combat_log(parent: Control) -> void:
 	parent.add_child(_combat_log)
 
 
-func _build_card_preview(parent: Control) -> void:
-	_card_preview_label = _make_label(11, Color(0.78, 0.78, 0.82))
-	_card_preview_label.position = CARD_PREVIEW_RECT.position + Vector2(8.0, 8.0)
-	_card_preview_label.size = CARD_PREVIEW_RECT.size - Vector2(16.0, 16.0)
-	_card_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_card_preview_label.text = "Hover una carta\npara ver detalles"
-	parent.add_child(_card_preview_label)
+func _build_card_preview(_parent: Control) -> void:
+	# Preview view es Node2D (tiene _draw), no Control. Lo agregamos como
+	# hijo del root, no del Hud Control.
+	_card_preview = CardPreviewView.new()
+	_card_preview.name = "CardPreview"
+	_card_preview.position = CARD_PREVIEW_RECT.position
+	add_child(_card_preview)
 
 
 func _build_deck_count(parent: Control) -> void:
@@ -282,9 +284,7 @@ func _draw() -> void:
 	_draw_dashed_rect(TUTORIAL_AREA, Color(0.55, 0.58, 0.62), "Tutorial / ayuda")
 	_draw_dashed_rect(EYE_CANDY_AREA, Color(0.45, 0.48, 0.55), "Eye candy: efectos visuales / turno actual")
 	_draw_dashed_rect(DEV_AREA, Color(0.55, 0.58, 0.62), "Dev / debug")
-	# Card preview frame (no punteado: sí está siempre visible)
-	draw_rect(CARD_PREVIEW_RECT, Color(0.14, 0.16, 0.20))
-	draw_rect(CARD_PREVIEW_RECT, Color(0.30, 0.32, 0.36), false, 1.5)
+	# (El card preview se dibuja desde CardPreviewView, hijo del root)
 	# Deck stack visual (rectángulos apilados)
 	_draw_card_stack(DECK_STACK_POS, Color(0.30, 0.34, 0.40))
 	# (El descarte se dibuja desde DiscardPileView)
@@ -364,6 +364,16 @@ func _on_player_hp_changed(current: int, maximum: int) -> void:
 
 func _on_minerals_changed(_faction: int, _new_amount: int) -> void:
 	_refresh_minerals()
+
+
+func _on_hand_card_hover_started(card: CardData) -> void:
+	if _card_preview != null:
+		_card_preview.show_card(card)
+
+
+func _on_hand_card_hover_ended() -> void:
+	if _card_preview != null:
+		_card_preview.clear_card()
 
 
 func _refresh_minerals() -> void:
