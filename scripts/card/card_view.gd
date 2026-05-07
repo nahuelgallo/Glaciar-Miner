@@ -14,6 +14,12 @@ signal inspect_requested(view: CardView)
 
 const CARD_WIDTH: float = 110.0
 const CARD_HEIGHT: float = 154.0
+# Extra height en el Area2D de hover. Cuando la carta se eleva (hover_lift),
+# el Area2D se va con ella y el mouse queda en "tierra de nadie" entre la
+# zona elevada y la posición original — eso provoca toggle infinito de
+# enter/exit. Extender el área hacia abajo cubre la posición original aun
+# con la carta levantada.
+const HOVER_AREA_EXTRA: float = 90.0
 
 @export var follow_speed: float = 18.0
 @export var hover_scale: float = 1.20
@@ -106,8 +112,11 @@ func _build_input_area() -> void:
 	add_child(area)
 	var shape := CollisionShape2D.new()
 	var rect := RectangleShape2D.new()
-	rect.size = Vector2(CARD_WIDTH, CARD_HEIGHT)
+	# Extendido hacia abajo para que la posición original siga siendo zona
+	# de hover cuando la carta está elevada (ver HOVER_AREA_EXTRA).
+	rect.size = Vector2(CARD_WIDTH, CARD_HEIGHT + HOVER_AREA_EXTRA)
 	shape.shape = rect
+	shape.position = Vector2(0.0, HOVER_AREA_EXTRA * 0.5)
 	area.add_child(shape)
 
 

@@ -16,8 +16,11 @@ var card: CardData
 
 
 func _ready() -> void:
-	anchor_right = 1.0
-	anchor_bottom = 1.0
+	# El parent es Node2D, así que los anchors no resuelven el size automaticamente.
+	# Forzamos size = viewport size para que el modal cubra toda la pantalla.
+	var vp_size: Vector2 = get_viewport_rect().size
+	position = Vector2.ZERO
+	size = vp_size
 	mouse_filter = Control.MOUSE_FILTER_STOP  # bloquea input al juego de abajo
 	gui_input.connect(_on_gui_input)
 	_build()

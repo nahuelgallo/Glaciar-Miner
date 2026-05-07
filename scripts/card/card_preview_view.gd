@@ -9,7 +9,7 @@ extends Node2D
 # mostrando los detalles de la carta arrastrada hasta que la sueltes.
 
 const W: float = 160.0
-const H: float = 260.0
+const H: float = 200.0
 
 var _current_card: CardData
 

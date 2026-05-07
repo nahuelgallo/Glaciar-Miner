@@ -14,8 +14,10 @@ const PANEL_H: float = 280.0
 
 
 func _ready() -> void:
-	anchor_right = 1.0
-	anchor_bottom = 1.0
+	# El parent es Node2D — anchors no funcionan, forzamos size manual.
+	var vp_size: Vector2 = get_viewport_rect().size
+	position = Vector2.ZERO
+	size = vp_size
 	mouse_filter = Control.MOUSE_FILTER_STOP
 	gui_input.connect(_on_gui_input)
 	_build()

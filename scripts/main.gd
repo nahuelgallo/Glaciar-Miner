@@ -223,10 +223,12 @@ func _build_combat_log(parent: Control) -> void:
 
 func _build_card_preview(_parent: Control) -> void:
 	# Preview view es Node2D (tiene _draw), no Control. Lo agregamos como
-	# hijo del root, no del Hud Control.
+	# hijo del root, no del Hud Control. Por default oculto — solo se muestra
+	# en hover.
 	_card_preview = CardPreviewView.new()
 	_card_preview.name = "CardPreview"
 	_card_preview.position = CARD_PREVIEW_RECT.position
+	_card_preview.hide()
 	add_child(_card_preview)
 
 
@@ -386,10 +388,12 @@ func _on_minerals_changed(_faction: int, _new_amount: int) -> void:
 func _on_hand_card_hover_started(card: CardData) -> void:
 	if _card_preview != null:
 		_card_preview.show_card(card)
+		_card_preview.show()
 
 
 func _on_hand_card_hover_ended() -> void:
 	if _card_preview != null:
+		_card_preview.hide()
 		_card_preview.clear_card()
 
 
@@ -610,7 +614,10 @@ func _on_card_dropped(card: CardData, drop_position: Vector2, view: CardView) ->
 func _build_drop_context(card: CardData, drop_position: Vector2) -> Variant:
 	var kind := EffectExecutor.target_kind_for(card)
 	if card.type == CardData.Type.HERO:
-		if not (_battlefield.is_over_battlefield(drop_position) or _battlefield.is_over_hero_slot(drop_position)):
+		# HERO requiere precisión: solo sobre un slot de héroe (no cualquier
+		# parte del campo). El highlight visual durante el drag muestra los
+		# slots disponibles.
+		if not _battlefield.is_over_hero_slot(drop_position):
 			return null
 		if _battlefield.is_full_of_heroes():
 			return null
@@ -645,11 +652,11 @@ func _drop_invalid_message(card: CardData) -> String:
 	var kind := EffectExecutor.target_kind_for(card)
 	if card.type == CardData.Type.HERO:
 		if _battlefield.is_full_of_heroes():
-			return "Campo de héroes lleno (3/3). Bajá uno antes de invocar otro."
-		return "Soltá %s sobre el campo para invocar." % card.card_name
+			return "Campo de héroes lleno (3/3). Esperá a que muera uno."
+		return "Soltá %s sobre un slot de héroe vacío." % card.card_name
 	match kind:
 		EffectExecutor.TargetKind.ENEMY:
-			return "%s necesita un enemigo como target." % card.card_name
+			return "%s necesita soltarse sobre un enemigo." % card.card_name
 		EffectExecutor.TargetKind.HERO_SELF:
 			return "%s necesita un héroe activo en el campo." % card.card_name
 	return "Soltá %s sobre el campo de combate." % card.card_name
