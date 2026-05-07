@@ -7,8 +7,10 @@ extends Node2D
 signal card_dropped(card: CardData, drop_position: Vector2, view: CardView)
 
 # Re-emitidas cuando el mouse entra/sale de una carta de la mano. El caller
-# las usa para alimentar el preview fijo (ver `CardPreviewView`).
-signal card_hover_started(card: CardData)
+# las usa para alimentar el preview (ver `CardPreviewView`). slot_global_pos
+# es la posición del slot original (sin lift), útil para colocar el preview
+# cerca de la carta hovered.
+signal card_hover_started(card: CardData, slot_global_pos: Vector2)
 signal card_hover_ended()
 # Disparada al click derecho sobre una carta. El caller abre la modal.
 signal card_inspect_requested(card: CardData)
@@ -117,7 +119,7 @@ func _on_card_hover_started(view: CardView) -> void:
 	if idx == -1 or view.data == null:
 		return
 	_hovered_view = view
-	card_hover_started.emit(view.data)
+	card_hover_started.emit(view.data, _slots[idx].global_position)
 
 
 # Solo escondemos si la carta que sale del hover es la que estaba mostrando

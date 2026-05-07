@@ -56,6 +56,7 @@ var _battlefield: Battlefield
 var _discard_pile: DiscardPileView
 var _drag_arrow: DragArrowOverlay
 var _dragging_card: CardData
+var _dragging_view: CardView
 var _turn_number: int = 1
 var _intent_cycle_index: int = 1
 var _combat_ended: bool = false
@@ -385,10 +386,24 @@ func _on_minerals_changed(_faction: int, _new_amount: int) -> void:
 	_refresh_minerals()
 
 
-func _on_hand_card_hover_started(card: CardData) -> void:
-	if _card_preview != null:
-		_card_preview.show_card(card)
-		_card_preview.show()
+func _on_hand_card_hover_started(card: CardData, slot_global_pos: Vector2) -> void:
+	if _card_preview == null:
+		return
+	# Si se está arrastrando una carta, no mostrar preview (el usuario ya
+	# está focused en el target).
+	if _dragging_card != null:
+		return
+	# Posicionar el preview JUSTO ARRIBA de la carta hovered, centrado en x.
+	# El slot_global_pos es el centro de la carta en su posición original.
+	var target_x: float = slot_global_pos.x - CardPreviewView.W * 0.5
+	var target_y: float = slot_global_pos.y - CardPreviewView.H - 100.0
+	# Clamp dentro del viewport para que no se corte
+	var vp: Vector2 = get_viewport_rect().size
+	target_x = clampf(target_x, 8.0, vp.x - CardPreviewView.W - 8.0)
+	target_y = maxf(target_y, 60.0)
+	_card_preview.position = Vector2(target_x, target_y)
+	_card_preview.show_card(card)
+	_card_preview.show()
 
 
 func _on_hand_card_hover_ended() -> void:
@@ -410,14 +425,21 @@ func _open_card_detail_modal(card: CardData) -> void:
 
 
 # Highlight de drop targets + flecha apuntadora durante el drag de una carta.
-func _on_card_drag_started(card: CardData, _view: CardView) -> void:
+func _on_card_drag_started(card: CardData, view: CardView) -> void:
 	_dragging_card = card
+	_dragging_view = view
+	# Ocultar preview mientras arrastra: el usuario ya conoce la carta y no
+	# debe taparle el campo.
+	if _card_preview != null:
+		_card_preview.hide()
+		_card_preview.clear_card()
 	_battlefield.set_drop_highlight(card.type, EffectExecutor.target_kind_for(card))
 	set_process(true)
 
 
 func _on_card_drag_ended() -> void:
 	_dragging_card = null
+	_dragging_view = null
 	if _battlefield != null:
 		_battlefield.clear_drop_highlight()
 	if _drag_arrow != null:
@@ -429,8 +451,10 @@ func _process(_delta: float) -> void:
 	if _dragging_card == null or _drag_arrow == null:
 		return
 	var mouse := get_global_mouse_position()
-	# Origin de la flecha: justo encima del HandManager (la mano), x del mouse.
-	var origin := Vector2(mouse.x, _hand.global_position.y - 80.0)
+	# Origen de la flecha: la posición de la carta arrastrada (la flecha la
+	# acompaña cuando el usuario la levanta del hand). Fallback al mouse si
+	# la view se desconectó (edge case).
+	var origin: Vector2 = _dragging_view.global_position if _dragging_view != null else mouse
 	var targets := _battlefield.slot_positions_for_drop(
 		_dragging_card.type,
 		EffectExecutor.target_kind_for(_dragging_card),
@@ -633,6 +657,7 @@ func _on_card_dropped(card: CardData, drop_position: Vector2, view: CardView) ->
 	var result := EffectExecutor.execute(card, context as Dictionary)
 	_log(String(result["message"]), "cccccc" if bool(result["ok"]) else "ff8866")
 	if bool(result["ok"]):
+		_spawn_card_fx(card, drop_position)
 		# Animación: la carta vuela al descarte, después se remueve y se
 		# agrega al pile. El estado de combate ya se aplicó (effect ya corrió).
 		var view_ref := view
@@ -645,6 +670,29 @@ func _on_card_dropped(card: CardData, drop_position: Vector2, view: CardView) ->
 		)
 		_check_combat_outcome()
 		_refresh_hud()
+
+
+# Selecciona el FX según el tipo/efecto de la carta jugada (§8 visuals):
+#   HERO       → ParticleStar burst en el slot de invocación
+#   deal_damage → ExplotionYankee gigante en el target enemigo
+#   resto       → Burst de ParticleSpec1/2/3 en el campo
+func _spawn_card_fx(card: CardData, pos: Vector2) -> void:
+	if card.type == CardData.Type.HERO:
+		var star: Texture2D = load("res://assets/Particles/ParticleStar.png")
+		ParticleBurst.spawn_at(self, pos, [star] as Array[Texture2D], 14)
+		return
+	var kind: String = String(card.effect.get("kind", ""))
+	if kind == "deal_damage":
+		var boom: Texture2D = load("res://assets/ExplotionYankee.png")
+		EffectAnimation.spawn_at(self, pos, boom, 1.6)
+		return
+	# Effect/action genérico: burst con las 3 particle specs.
+	var specs: Array[Texture2D] = [
+		load("res://assets/Particles/ParticleSpec1.png"),
+		load("res://assets/Particles/ParticleSpec2.png"),
+		load("res://assets/Particles/ParticleSpec3.png"),
+	]
+	ParticleBurst.spawn_at(self, pos, specs, 16)
 
 
 # Devuelve null si el drop no es válido para esta carta, o un Dictionary

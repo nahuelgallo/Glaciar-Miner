@@ -8,8 +8,8 @@ extends Node2D
 # Coexiste con el drag de la carta: cuando arrastrás, el preview sigue
 # mostrando los detalles de la carta arrastrada hasta que la sueltes.
 
-const W: float = 160.0
-const H: float = 200.0
+const W: float = 200.0
+const H: float = 280.0
 
 var _current_card: CardData
 
@@ -43,30 +43,31 @@ func _draw() -> void:
 	draw_rect(rect, _faction_color(_current_card.faction))
 	draw_rect(rect, _type_outline_color(_current_card.type), false, 3.5)
 	# Banda inferior para texto sobre fondo oscuro.
-	var band := Rect2(0.0, H * 0.55, W, H * 0.45)
+	var band := Rect2(0.0, H * 0.50, W, H * 0.50)
 	draw_rect(band, Color(0.08, 0.06, 0.05, 0.88))
 
 
 func _build() -> void:
-	_name_label = _make_label(13, Color(0.08, 0.06, 0.03))
-	_name_label.position = Vector2(8.0, 6.0)
-	_name_label.size = Vector2(W - 16.0, 18.0)
+	# Tipografías +40% (de 13/10/11/10 a 18/14/15/14)
+	_name_label = _make_label(18, Color(0.08, 0.06, 0.03))
+	_name_label.position = Vector2(10.0, 8.0)
+	_name_label.size = Vector2(W - 20.0, 24.0)
 	_name_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_name_label)
 
-	_type_label = _make_label(10, Color(0.10, 0.08, 0.05))
-	_type_label.position = Vector2(8.0, 26.0)
-	_type_label.size = Vector2(W - 16.0, 14.0)
+	_type_label = _make_label(14, Color(0.10, 0.08, 0.05))
+	_type_label.position = Vector2(10.0, 36.0)
+	_type_label.size = Vector2(W - 20.0, 18.0)
 	add_child(_type_label)
 
-	_stats_label = _make_label(11, Color(0.95, 0.95, 0.95))
-	_stats_label.position = Vector2(8.0, H * 0.55 + 4.0)
-	_stats_label.size = Vector2(W - 16.0, 16.0)
+	_stats_label = _make_label(15, Color(0.95, 0.95, 0.95))
+	_stats_label.position = Vector2(10.0, H * 0.50 + 4.0)
+	_stats_label.size = Vector2(W - 20.0, 22.0)
 	add_child(_stats_label)
 
-	_desc_label = _make_label(10, Color(0.92, 0.92, 0.95))
-	_desc_label.position = Vector2(8.0, H * 0.55 + 22.0)
-	_desc_label.size = Vector2(W - 16.0, H * 0.45 - 28.0)
+	_desc_label = _make_label(14, Color(0.92, 0.92, 0.95))
+	_desc_label.position = Vector2(10.0, H * 0.50 + 30.0)
+	_desc_label.size = Vector2(W - 20.0, H * 0.50 - 38.0)
 	_desc_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	add_child(_desc_label)
 
@@ -94,8 +95,8 @@ func _refresh() -> void:
 		return
 	# Restaurar layout normal cuando hay carta.
 	_desc_label.add_theme_color_override("font_color", Color(0.92, 0.92, 0.95))
-	_desc_label.position = Vector2(8.0, H * 0.55 + 22.0)
-	_desc_label.size = Vector2(W - 16.0, H * 0.45 - 28.0)
+	_desc_label.position = Vector2(10.0, H * 0.50 + 30.0)
+	_desc_label.size = Vector2(W - 20.0, H * 0.50 - 38.0)
 	_desc_label.vertical_alignment = VERTICAL_ALIGNMENT_TOP
 	_desc_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
 
