@@ -32,12 +32,12 @@ func _draw() -> void:
 	else:
 		draw_rect(rect, _faction_color(card.faction))
 	# Borde por tipo
-	draw_rect(rect, _type_outline_color(card.type), false, max(2.0, w * 0.02))
+	draw_rect(rect, _type_outline_color(card.type), false, maxf(2.0, w * 0.02))
 	# Header oscurecido (nombre)
-	var header_h: float = max(36.0, h * 0.13)
+	var header_h: float = maxf(36.0, h * 0.13)
 	draw_rect(Rect2(0.0, 0.0, w, header_h), Color(0.0, 0.0, 0.0, 0.55))
 	# Banda inferior (stats / type)
-	var band_h: float = max(50.0, h * 0.20)
+	var band_h: float = maxf(50.0, h * 0.20)
 	draw_rect(Rect2(0.0, h - band_h, w, band_h), Color(0.05, 0.04, 0.04, 0.88))
 	# Texto
 	var f := ThemeDB.fallback_font

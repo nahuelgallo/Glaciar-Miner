@@ -599,7 +599,7 @@ func _spawn_pending_or_default_enemies() -> void:
 					var is_boss: bool = bool(enemy_dict.get("is_boss", false))
 					# §5.4 encounter groupings: enemigos comunes spawn en grupo
 					# de 1-3 (random). Bosses son siempre 1 (combate único).
-					var group_size := 1 if is_boss else (1 + randi() % min(3, Battlefield.MAX_ENEMIES))
+					var group_size: int = 1 if is_boss else 1 + randi() % mini(3, Battlefield.MAX_ENEMIES)
 					for i in group_size:
 						var ei := EnemyInstance.new(
 							String(enemy_dict["kind"]),
