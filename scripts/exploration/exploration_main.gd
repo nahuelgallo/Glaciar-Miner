@@ -21,6 +21,7 @@ var _info_label: Label
 var _hp_label: Label
 var _last_event_label: Label
 var _minerals_label: Label
+var _deck_button: Button
 
 
 func _ready() -> void:
@@ -71,6 +72,14 @@ func _build_hud() -> void:
 	_last_event_label.position = Vector2(16.0, 88.0)
 	_last_event_label.custom_minimum_size = Vector2(900.0, 0.0)
 	add_child(_last_event_label)
+
+	_deck_button = Button.new()
+	_deck_button.text = "MAZO  (M)"
+	_deck_button.position = Vector2(1130.0, 16.0)
+	_deck_button.size = Vector2(130.0, 36.0)
+	_deck_button.add_theme_font_size_override("font_size", 14)
+	_deck_button.pressed.connect(_open_deck_menu)
+	add_child(_deck_button)
 
 
 func _make_label(font_size: int, color: Color) -> Label:
