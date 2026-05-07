@@ -55,7 +55,7 @@ func _handle_combat_outcome() -> void:
 func _build_hud() -> void:
 	_info_label = _make_label(14, Color(0.85, 0.95, 0.55))
 	_info_label.position = Vector2(16.0, 16.0)
-	_info_label.text = "WASD/flechas para moverte. Bump enemigo = combate. Bump roca = minar. Bump shrine = curar."
+	_info_label.text = "WASD/flechas: moverte · bump enemigo: combate · bump roca: minar · bump shrine: curar · M: abrir mazo"
 	add_child(_info_label)
 
 	_hp_label = _make_label(15, Color(1.0, 0.55, 0.55))
@@ -161,6 +161,10 @@ func _draw_actor(grid_pos: Vector2i, color: Color) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
+	# M = abrir el menú de mazo (designar líder, ver cartas)
+	if event.keycode == KEY_M:
+		_open_deck_menu()
+		return
 	var move := Vector2i.ZERO
 	match event.keycode:
 		KEY_W, KEY_UP:    move = Vector2i(0, -1)
@@ -170,6 +174,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if move == Vector2i.ZERO:
 		return
 	_try_move_player(move)
+
+
+func _open_deck_menu() -> void:
+	# Si ya hay un menú abierto, no abrir otro encima.
+	for child in get_children():
+		if child is DeckManagementMenu:
+			return
+	var menu := DeckManagementMenu.new()
+	add_child(menu)
 
 
 func _try_move_player(delta: Vector2i) -> void:

@@ -25,6 +25,16 @@ var player_hp: int = STARTING_HP
 var player_max_hp: int = STARTING_HP
 var minerals: MineralBag
 
+# Mazo del jugador — hoy es el pool completo del JSON, cacheado. Cuando
+# entren deck/discard piles formales (M2), esto se reemplaza por la lista
+# real de cartas del mazo activo.
+var deck: Array[CardData] = []
+
+# Signature hero (§7.7): id de la carta HERO designada como líder. Se
+# auto-invoca al inicio de cada combate sin consumir el cap de invocación.
+# Vacío = sin líder designado (fallback: primer hero del pool).
+var signature_card_id: StringName = &""
+
 # Mundo persistente — se inicializa en el primer reset_run() o en el primer
 # acceso desde la escena de exploración.
 var world: WorldState
@@ -50,11 +60,32 @@ func ensure_world() -> WorldState:
 	return world
 
 
+func ensure_deck() -> Array[CardData]:
+	if deck.is_empty():
+		deck = CardLoader.load_all()
+	return deck
+
+
+func set_signature(card_id: StringName) -> void:
+	signature_card_id = card_id
+
+
+func get_signature_card() -> CardData:
+	if signature_card_id == &"":
+		return null
+	for c in ensure_deck():
+		if c.id == signature_card_id and c.type == CardData.Type.HERO:
+			return c
+	return null
+
+
 func reset_run() -> void:
 	player_hp = STARTING_HP
 	player_max_hp = STARTING_HP
 	minerals = MineralBag.new()
 	world = WorldState.new()
+	deck.clear()
+	signature_card_id = &""
 	pending_combat_enemy_ids.clear()
 	last_combat_outcome = CombatOutcome.NONE
 	run_reset.emit()

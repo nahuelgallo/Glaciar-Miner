@@ -539,9 +539,15 @@ func _log(line: String, color_hex: String = "cccccc") -> void:
 # ──────────────────────────────────────────────────────────────────
 
 
-# §7.7 placeholder: hoy "signature" = primer HERO del pool. Cuando entre
-# la designación real, esto lee `RunState.signature_id`.
+# §7.7: auto-summon del signature hero al inicio del combate. Lee
+# `RunState.signature_card_id` (designado vía DeckManagementMenu en
+# exploración). Fallback: primer HERO del pool si no hay signature.
 func _auto_summon_signature() -> void:
+	var sig := RunState.get_signature_card()
+	if sig != null:
+		_summon_hero_from_card(sig)
+		_log("Líder %s invocado al inicio del combate." % sig.card_name, "ddffaa")
+		return
 	for card in _pool:
 		if card.type == CardData.Type.HERO:
 			_summon_hero_from_card(card)
