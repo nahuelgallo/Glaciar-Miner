@@ -222,7 +222,7 @@ func is_hard_gate_at(pos: Vector2i) -> bool:
 func is_blocked_for_movement(pos: Vector2i, can_open_gate: bool = false) -> bool:
 	if pos.x < 0 or pos.x >= W or pos.y < 0 or pos.y >= H:
 		return true
-	var t := tiles[pos.x][pos.y]
+	var t: int = int(tiles[pos.x][pos.y])
 	if t == TILE_WALL:
 		return true
 	if t == TILE_HARD_GATE and not can_open_gate:
