@@ -596,13 +596,20 @@ func _spawn_pending_or_default_enemies() -> void:
 		for id in ids:
 			for enemy_dict in world.enemies:
 				if int(enemy_dict["id"]) == id:
-					var ei := EnemyInstance.new(
-						String(enemy_dict["kind"]),
-						int(enemy_dict["max_hp"]),
-						int(enemy_dict["intent"])
-					)
-					_battlefield.add_enemy(ei)
-					spawned += 1
+					var is_boss: bool = bool(enemy_dict.get("is_boss", false))
+					# §5.4 encounter groupings: enemigos comunes spawn en grupo
+					# de 1-3 (random). Bosses son siempre 1 (combate único).
+					var group_size := 1 if is_boss else (1 + randi() % min(3, Battlefield.MAX_ENEMIES))
+					for i in group_size:
+						var ei := EnemyInstance.new(
+							String(enemy_dict["kind"]),
+							int(enemy_dict["max_hp"]),
+							int(enemy_dict["intent"]),
+							is_boss
+						)
+						if not _battlefield.add_enemy(ei):
+							break  # battlefield lleno
+						spawned += 1
 					break
 	if spawned == 0:
 		_battlefield.add_enemy(EnemyInstance.new("Slime", 14, _INTENT_CYCLE[_intent_cycle_index]))
@@ -833,12 +840,17 @@ func _trigger_victory() -> void:
 	var world := RunState.ensure_world()
 	var msg := "[b]VICTORIA[/b]. Drops:"
 	var any_drop := false
+	var boss_killed := false
 	for id in RunState.pending_combat_enemy_ids:
 		for enemy_dict in world.enemies:
 			if int(enemy_dict["id"]) == id:
 				var f: int = int(enemy_dict["faction"])
+				# Mineral drop: bosses dan más, también del mineral de su facción
+				var amt: int = 2 + randi() % 3
+				if bool(enemy_dict.get("is_boss", false)):
+					boss_killed = true
+					amt += 5  # bonus boss
 				if f != CardData.Faction.NONE:
-					var amt := 2 + randi() % 3
 					RunState.gain_minerals(f, amt)
 					msg += "  +%d %s" % [amt, MineralBag.mineral_name(f)]
 					any_drop = true
@@ -846,6 +858,14 @@ func _trigger_victory() -> void:
 	if not any_drop:
 		msg += "  (sin minerales)"
 	_log(msg, "88dd99")
+	# §6.8: matar al boss dropea McGuffin (§5.3) que abre el hard gate.
+	if boss_killed:
+		RunState.grant_mcguffin()
+		_log("[b]★ McGuffin obtenido[/b] — abre el hard gate de la capa actual.", "ffdd66")
+		# Si era el boss de la última capa, marcar run_won
+		if RunState.current_layer >= WorldState.MAX_LAYERS:
+			RunState.run_won = true
+			_log("[b]🎉 Última capa derrotada — RUN GANADA[/b]", "ffdd66")
 	# §7.7: si el signature murió durante el combate, forzar re-designar.
 	_check_signature_redesignation()
 	_log("Apretá [b]Q[/b] para volver a explorar.", "ddffaa")

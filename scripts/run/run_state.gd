@@ -46,6 +46,15 @@ var roster: Dictionary = {}  # StringName -> HeroInstance
 # jugador a re-designar uno antes de seguir explorando (§7.7).
 var must_redesignate_signature: bool = false
 
+# Capa actual (§4 macro loop). Empieza en 1, sube cuando el jugador cruza
+# un hard gate con McGuffin. Al pasar MAX_LAYERS = victoria de la run.
+var current_layer: int = 1
+# Inventario de McGuffins (§5.3). Al matar un boss se gana 1; al cruzar
+# el hard gate se gasta 1.
+var mcguffins: int = 0
+# Flag al ganar la run completa (último boss derrotado).
+var run_won: bool = false
+
 # Mundo persistente — se inicializa en el primer reset_run() o en el primer
 # acceso desde la escena de exploración.
 var world: WorldState
@@ -137,6 +146,9 @@ func reset_run() -> void:
 	roster.clear()
 	signature_card_id = &""
 	must_redesignate_signature = false
+	current_layer = 1
+	mcguffins = 0
+	run_won = false
 	pending_combat_enemy_ids.clear()
 	last_combat_outcome = CombatOutcome.NONE
 	run_reset.emit()
@@ -145,6 +157,28 @@ func reset_run() -> void:
 		if f == CardData.Faction.NONE:
 			continue
 		minerals_changed.emit(f, 0)
+
+
+# Avanza de capa: regenera el world para next layer y consume 1 McGuffin.
+# Devuelve true si avanzó, false si no se puede (e.g. ya estás en MAX o sin
+# McGuffin).
+func advance_layer() -> bool:
+	if mcguffins <= 0:
+		return false
+	if current_layer >= WorldState.MAX_LAYERS:
+		# Última capa ya completada → victoria de la run
+		run_won = true
+		return false
+	mcguffins -= 1
+	current_layer += 1
+	world = WorldState.new()
+	world.generate_for_layer(current_layer)
+	return true
+
+
+# Llamado al matar un boss en combate.
+func grant_mcguffin() -> void:
+	mcguffins += 1
 
 
 # Devuelve la HeroInstance persistente para esta carta. Si no existe en el

@@ -14,13 +14,17 @@ var max_hp: int
 # §6.5: las intenciones se telegrafían (StS-style) para que el jugador pueda
 # planear la defensa. intent_damage = lo que va a hacer en su próximo turno.
 var intent_damage: int = 4
+# §6.8: los bosses tienen HP elevado, intent más fuerte y dropean un McGuffin.
+# Un solo enemigo en un encounter (no 1-3 del grouping §5.4).
+var is_boss: bool = false
 
 
-func _init(name_: String = "Slime", starting_hp: int = 14, intent: int = 4) -> void:
+func _init(name_: String = "Slime", starting_hp: int = 14, intent: int = 4, boss: bool = false) -> void:
 	enemy_name = name_
 	hp = starting_hp
 	max_hp = starting_hp
 	intent_damage = intent
+	is_boss = boss
 
 
 func is_alive() -> bool:

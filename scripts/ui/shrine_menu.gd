@@ -7,9 +7,10 @@ extends Control
 # packs faction-typed reales, esto se generaliza.
 
 signal closed()
+signal recycle_requested()
 
 const PANEL_W: float = 480.0
-const PANEL_H: float = 480.0
+const PANEL_H: float = 540.0
 
 const HEAL_COST: int = 3
 const HEAL_AMOUNT: int = 5
@@ -95,6 +96,16 @@ func _build() -> void:
 		"Costo: %d Argentite" % PACK_RARE_COST,
 		_can_afford(PACK_RARE_COST),
 		_on_pack_rare_pressed
+	)
+	y += btn_h + 14.0
+
+	# Reciclar carta — abre el deck menu en modo reciclar
+	_add_option(
+		btns_x, y, btn_w, btn_h,
+		"Reciclar carta",
+		"Abre el mazo · click destruye la carta y te devuelve minerales",
+		not RunState.ensure_deck().is_empty(),
+		_on_recycle_pressed
 	)
 	y += btn_h + 24.0
 
@@ -183,6 +194,11 @@ func _on_pack_rare_pressed() -> void:
 		var added := RunState.add_random_cards_to_deck(PACK_RARE_CARDS, 0.40)
 		_log_purchase("Pack avanzado: %s" % _join_card_names(added))
 	_rebuild()
+
+
+func _on_recycle_pressed() -> void:
+	recycle_requested.emit()
+	queue_free()
 
 
 func _join_card_names(cards: Array[CardData]) -> String:

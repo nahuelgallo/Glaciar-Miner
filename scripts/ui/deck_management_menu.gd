@@ -29,6 +29,11 @@ const FILTER_ALL: int = -1
 # previo murió en combate (§7.7).
 var forced: bool = false
 
+# Cuando es true, click izquierdo en cualquier carta NO-líder la destruye
+# y devuelve recycle_value al jugador en mineral de su facción (§7.5).
+# Lo abre exploration_main al apretar "Reciclar carta" en el ShrineMenu.
+var recycle_mode: bool = false
+
 var _active_filter: int = FILTER_ALL
 var _hovered_card: CardData
 
@@ -69,7 +74,7 @@ func _build() -> void:
 	var title := _make_label(22, Color(0.95, 0.92, 0.78))
 	title.position = panel_pos + Vector2(0.0, 18.0)
 	title.size = Vector2(PANEL_W, 28.0)
-	title.text = "MAZO"
+	title.text = "RECICLAR CARTA" if recycle_mode else "MAZO"
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	add_child(title)
 
@@ -87,6 +92,14 @@ func _build() -> void:
 		alert.position = panel_pos + Vector2(0.0, 70.0)
 		alert.size = Vector2(PANEL_W, 18.0)
 		alert.text = "⚠ Tu líder anterior cayó. Elegí un héroe vivo para continuar la run."
+		alert.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		add_child(alert)
+	# §7.5 recycle mode: instrucciones
+	if recycle_mode:
+		var alert := _make_label(13, Color(0.55, 0.95, 0.65))
+		alert.position = panel_pos + Vector2(0.0, 70.0)
+		alert.size = Vector2(PANEL_W, 18.0)
+		alert.text = "Click destruye la carta y te devuelve minerales (líderes no se pueden reciclar)"
 		alert.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		add_child(alert)
 
@@ -370,8 +383,29 @@ func _on_card_input(event: InputEvent, card: CardData, clickable: bool) -> void:
 		return
 	if event.button_index == MOUSE_BUTTON_RIGHT:
 		_open_card_detail(card)
-	elif event.button_index == MOUSE_BUTTON_LEFT and clickable:
-		_designate_leader(card)
+	elif event.button_index == MOUSE_BUTTON_LEFT:
+		if recycle_mode:
+			_recycle_card(card)
+		elif clickable:
+			_designate_leader(card)
+
+
+func _recycle_card(card: CardData) -> void:
+	# El líder no se puede reciclar.
+	if card.id == RunState.signature_card_id:
+		return
+	var deck := RunState.ensure_deck()
+	var idx := deck.find(card)
+	if idx < 0:
+		return
+	deck.remove_at(idx)
+	# Mineral del recycle: facción de la carta (NONE → APOLITICAL fallback).
+	var f: int = int(card.faction)
+	if f == CardData.Faction.NONE:
+		f = CardData.Faction.APOLITICAL
+	RunState.gain_minerals(f, card.recycle_value)
+	_clear_children()
+	_build()
 
 
 func _designate_leader(card: CardData) -> void:

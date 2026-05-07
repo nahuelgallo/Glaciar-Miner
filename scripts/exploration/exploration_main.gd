@@ -21,6 +21,7 @@ var _info_label: Label
 var _hp_label: Label
 var _last_event_label: Label
 var _minerals_label: Label
+var _layer_label: Label
 var _deck_button: Button
 
 
@@ -77,6 +78,10 @@ func _build_hud() -> void:
 	_hp_label.position = Vector2(16.0, 40.0)
 	add_child(_hp_label)
 
+	_layer_label = _make_label(14, Color(0.95, 0.85, 0.35))
+	_layer_label.position = Vector2(280.0, 40.0)
+	add_child(_layer_label)
+
 	_minerals_label = _make_label(12, Color(0.85, 0.85, 0.88))
 	_minerals_label.position = Vector2(16.0, 64.0)
 	_minerals_label.custom_minimum_size = Vector2(720.0, 0.0)
@@ -105,6 +110,9 @@ func _make_label(font_size: int, color: Color) -> Label:
 
 func _refresh_hud() -> void:
 	_hp_label.text = "HP %d / %d" % [RunState.player_hp, RunState.player_max_hp]
+	_layer_label.text = "Capa %d / %d   ·   ★ McGuffins: %d" % [
+		RunState.current_layer, WorldState.MAX_LAYERS, RunState.mcguffins
+	]
 	# Una línea con todos los minerales.
 	var parts: Array[String] = []
 	for f in CardData.Faction.values():
@@ -125,10 +133,17 @@ func _draw() -> void:
 			var rect := _tile_rect(Vector2i(x, y))
 			var color: Color
 			match _world.tiles[x][y]:
-				WorldState.TILE_WALL: color = Color(0.42, 0.38, 0.34)
-				_:                    color = Color(0.16, 0.18, 0.20)
+				WorldState.TILE_WALL:      color = Color(0.42, 0.38, 0.34)
+				WorldState.TILE_HARD_GATE: color = Color(0.45, 0.35, 0.10)
+				_:                         color = Color(0.16, 0.18, 0.20)
 			draw_rect(rect, color)
 			draw_rect(rect, Color(0.10, 0.09, 0.08), false, 1.0)
+			# Marcar visualmente el hard gate con un candado dorado
+			if _world.tiles[x][y] == WorldState.TILE_HARD_GATE:
+				draw_rect(rect, Color(0.95, 0.78, 0.35), false, 3.0)
+				var c := rect.position + rect.size * 0.5
+				draw_circle(c + Vector2(0, -3), 6.0, Color(0.95, 0.78, 0.35))
+				draw_rect(Rect2(c.x - 7, c.y, 14, 10), Color(0.95, 0.78, 0.35))
 	# Shrines (§7.5) — verde-azulado con cruz.
 	for s in _world.shrines:
 		var rect := _tile_rect(s)
@@ -148,10 +163,14 @@ func _draw() -> void:
 		var s := 6.0
 		draw_line(c + Vector2(-s, -s), c + Vector2(s, s), Color(0.10, 0.08, 0.06, 0.85), 2.0)
 		draw_line(c + Vector2(s, -s), c + Vector2(-s, s), Color(0.10, 0.08, 0.06, 0.85), 2.0)
-	# Enemigos
+	# Enemigos (los bosses se dibujan más grandes y con borde dorado)
 	for e in _world.enemies:
 		var col := _faction_color(int(e["faction"])).blend(Color(0.85, 0.30, 0.30, 0.6))
-		_draw_actor(e["pos"], col)
+		var is_boss: bool = bool(e.get("is_boss", false))
+		if is_boss:
+			_draw_boss_actor(e["pos"], col)
+		else:
+			_draw_actor(e["pos"], col)
 	# Player
 	_draw_actor(_world.player, Color(0.40, 0.72, 0.95))
 
@@ -179,6 +198,22 @@ func _draw_actor(grid_pos: Vector2i, color: Color) -> void:
 	)
 	draw_rect(rect, color)
 	draw_rect(rect, Color(0.08, 0.06, 0.04), false, 2.0)
+
+
+func _draw_boss_actor(grid_pos: Vector2i, color: Color) -> void:
+	# Boss: rect más grande (sin inset), borde dorado y corona triangular arriba
+	var rect := Rect2(
+		_origin + Vector2(grid_pos) * TILE_SIZE + Vector2(2.0, 2.0),
+		Vector2(TILE_SIZE - 4.0, TILE_SIZE - 4.0)
+	)
+	draw_rect(rect, color.darkened(0.10))
+	draw_rect(rect, Color(0.95, 0.78, 0.35), false, 3.0)
+	# Corona simple (triángulo)
+	var c := rect.position + Vector2(rect.size.x * 0.5, 6.0)
+	draw_polygon(
+		[c + Vector2(-7, 0), c + Vector2(7, 0), c + Vector2(0, -7)],
+		[Color(0.95, 0.78, 0.35), Color(0.95, 0.78, 0.35), Color(0.95, 0.78, 0.35)]
+	)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -214,6 +249,10 @@ func _try_move_player(delta: Vector2i) -> void:
 		return
 	if _world.tiles[target.x][target.y] == WorldState.TILE_WALL:
 		return
+	# Bump hard gate (§5.3) → si tenés McGuffin, abrís y avanzás de capa.
+	if _world.is_hard_gate_at(target):
+		_try_open_hard_gate()
+		return
 	# Bump enemigo → combate, sin avanzar mundo.
 	var enemy_dict := _world.enemy_at(target)
 	if not enemy_dict.is_empty():
@@ -236,6 +275,22 @@ func _try_move_player(delta: Vector2i) -> void:
 	_advance_world_turn()
 	_refresh_hud()
 	queue_redraw()
+
+
+func _try_open_hard_gate() -> void:
+	if RunState.mcguffins <= 0:
+		_last_event_label.text = "Hard gate cerrado. Necesitás un McGuffin (matá al boss de la capa)."
+		return
+	# Consume McGuffin y avanza a la próxima capa
+	if RunState.advance_layer():
+		_world = RunState.ensure_world()
+		_last_event_label.text = "★ Avanzaste a la Capa %d." % RunState.current_layer
+		_refresh_hud()
+		queue_redraw()
+	else:
+		# advance_layer falla si era la última capa → run_won
+		_last_event_label.text = "★ Última capa derrotada — RUN GANADA."
+		_refresh_hud()
 
 
 func _bump_enemy(enemy_dict: Dictionary) -> void:
@@ -272,7 +327,7 @@ func _apply_drop(drop: Dictionary) -> String:
 			return "(sin drop)"
 
 
-# §7.5: bump shrine abre el ShrineMenu con opciones (curar / packs).
+# §7.5: bump shrine abre el ShrineMenu con opciones (curar / packs / reciclar).
 func _activate_shrine(_pos: Vector2i) -> void:
 	# Si ya hay un menú abierto, no abrir otro.
 	for child in get_children():
@@ -280,6 +335,7 @@ func _activate_shrine(_pos: Vector2i) -> void:
 			return
 	var menu := ShrineMenu.new()
 	menu.closed.connect(_on_shrine_closed)
+	menu.recycle_requested.connect(_open_recycle_menu)
 	add_child(menu)
 	_last_event_label.text = "Shrine abierto. Elegí una opción."
 
@@ -287,6 +343,16 @@ func _activate_shrine(_pos: Vector2i) -> void:
 func _on_shrine_closed() -> void:
 	_last_event_label.text = "Shrine cerrado."
 	_refresh_hud()
+
+
+func _open_recycle_menu() -> void:
+	for child in get_children():
+		if child is DeckManagementMenu:
+			return
+	var menu := DeckManagementMenu.new()
+	menu.recycle_mode = true
+	add_child(menu)
+	_last_event_label.text = "Modo reciclar — click destruye la carta."
 
 
 func _advance_world_turn() -> void:
