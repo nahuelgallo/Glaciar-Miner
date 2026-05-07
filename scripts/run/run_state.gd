@@ -35,6 +35,17 @@ var deck: Array[CardData] = []
 # Vacío = sin líder designado (fallback: primer hero del pool).
 var signature_card_id: StringName = &""
 
+# Roster de héroes "vivos" en la run, mapped por card.id. Cada hero mantiene
+# su HP entre combates (§6.4: "Heroes persist between combats at their
+# current HP"). Cuando un hero muere (HP=0), queda en el roster pero no se
+# puede re-invocar hasta que sea curado en un shrine (open question §6.4
+# resolved as "needs healing").
+var roster: Dictionary = {}  # StringName -> HeroInstance
+
+# Cuando el signature hero muere durante un combate, este flag fuerza al
+# jugador a re-designar uno antes de seguir explorando (§7.7).
+var must_redesignate_signature: bool = false
+
 # Mundo persistente — se inicializa en el primer reset_run() o en el primer
 # acceso desde la escena de exploración.
 var world: WorldState
@@ -62,8 +73,46 @@ func ensure_world() -> WorldState:
 
 func ensure_deck() -> Array[CardData]:
 	if deck.is_empty():
-		deck = CardLoader.load_all()
+		deck = _ensure_all_cards_pool().duplicate()
 	return deck
+
+
+# Pool master de todas las cartas posibles del juego (lo que existe en el JSON).
+# El deck del jugador es un subset/multiset de este pool.
+var _all_cards_cache: Array[CardData] = []
+func _ensure_all_cards_pool() -> Array[CardData]:
+	if _all_cards_cache.is_empty():
+		_all_cards_cache = CardLoader.load_all()
+	return _all_cards_cache
+
+
+# Suma N cartas random del pool master al deck (reemplaza al modelo "deck =
+# todas las del JSON inmutable"). Devuelve la lista de cartas agregadas para
+# que el caller pueda mostrarlas en UI.
+func add_random_cards_to_deck(count: int, hero_chance: float = 0.25) -> Array[CardData]:
+	var pool := _ensure_all_cards_pool()
+	var added: Array[CardData] = []
+	if pool.is_empty():
+		return added
+	# Separamos heroes de otros para poder controlar la proporción.
+	var heroes: Array[CardData] = []
+	var others: Array[CardData] = []
+	for c in pool:
+		if c.type == CardData.Type.HERO:
+			heroes.append(c)
+		else:
+			others.append(c)
+	for i in count:
+		var card: CardData
+		if not heroes.is_empty() and randf() < hero_chance:
+			card = heroes.pick_random()
+		elif not others.is_empty():
+			card = others.pick_random()
+		else:
+			card = pool.pick_random()
+		ensure_deck().append(card)
+		added.append(card)
+	return added
 
 
 func set_signature(card_id: StringName) -> void:
@@ -85,7 +134,9 @@ func reset_run() -> void:
 	minerals = MineralBag.new()
 	world = WorldState.new()
 	deck.clear()
+	roster.clear()
 	signature_card_id = &""
+	must_redesignate_signature = false
 	pending_combat_enemy_ids.clear()
 	last_combat_outcome = CombatOutcome.NONE
 	run_reset.emit()
@@ -94,6 +145,26 @@ func reset_run() -> void:
 		if f == CardData.Faction.NONE:
 			continue
 		minerals_changed.emit(f, 0)
+
+
+# Devuelve la HeroInstance persistente para esta carta. Si no existe en el
+# roster, la crea fresh (HP completo). Si ya existe, devuelve la misma
+# instancia con su HP actual (§6.4 carryover).
+func get_or_create_hero(card: CardData) -> HeroInstance:
+	if roster.has(card.id):
+		return roster[card.id]
+	var hero := HeroInstance.new(card)
+	roster[card.id] = hero
+	return hero
+
+
+# Cura todos los héroes del roster a HP completo (placeholder: cuando entre
+# la opción de heal heroes en shrine, se invoca por hero individual).
+func heal_all_heroes() -> void:
+	for hero in roster.values():
+		var h: HeroInstance = hero
+		h.hp = h.max_hp
+		h.hp_changed.emit(h.hp, h.max_hp)
 
 
 func gain_minerals(faction: CardData.Faction, amount: int) -> void:

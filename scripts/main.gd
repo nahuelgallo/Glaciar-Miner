@@ -545,19 +545,44 @@ func _log(line: String, color_hex: String = "cccccc") -> void:
 func _auto_summon_signature() -> void:
 	var sig := RunState.get_signature_card()
 	if sig != null:
-		_summon_hero_from_card(sig)
-		_log("Líder %s invocado al inicio del combate." % sig.card_name, "ddffaa")
-		return
+		var hero := RunState.get_or_create_hero(sig)
+		if hero.is_alive():
+			if _summon_hero_instance(hero):
+				_log("Líder %s invocado al inicio del combate (HP %d/%d)." % [
+					sig.card_name, hero.hp, hero.max_hp
+				], "ddffaa")
+				return
+		else:
+			_log("Líder %s está caído (0 HP). Curalo en un shrine." % sig.card_name, "ff8866")
+			return
+	# Fallback: primer hero vivo del pool.
 	for card in _pool:
 		if card.type == CardData.Type.HERO:
-			_summon_hero_from_card(card)
-			return
+			var hero := RunState.get_or_create_hero(card)
+			if hero.is_alive():
+				_summon_hero_instance(hero)
+				return
 
 
+# §6.4: usa la HeroInstance del roster persistente. La carta se "vuelve a
+# poner" en el campo con su HP actual, no se crea fresh.
 func _summon_hero_from_card(card: CardData) -> bool:
 	if _battlefield == null:
 		return false
-	return _battlefield.add_hero(HeroInstance.new(card))
+	var hero := RunState.get_or_create_hero(card)
+	if not hero.is_alive():
+		return false
+	return _summon_hero_instance(hero)
+
+
+func _summon_hero_instance(hero: HeroInstance) -> bool:
+	if _battlefield == null:
+		return false
+	# Si ya está en el campo (caso reuso), no duplicar.
+	for h in _battlefield.heroes():
+		if h == hero:
+			return true
+	return _battlefield.add_hero(hero)
 
 
 func _spawn_pending_or_default_enemies() -> void:
@@ -633,7 +658,13 @@ func _build_drop_context(card: CardData, drop_position: Vector2) -> Variant:
 			var enemy := _battlefield.enemy_at(drop_position)
 			if enemy == null:
 				return null
-			return { "target_enemy": enemy }
+			# §7.3 synergy: el carrier (hero a través del cual se juega la
+			# action card) es el primer hero vivo. Cuando exista UI para
+			# elegir carrier explícito, esto cambia.
+			return {
+				"target_enemy": enemy,
+				"carrier_hero": _battlefield.first_alive_hero(),
+			}
 		EffectExecutor.TargetKind.HERO_SELF:
 			var hero := _battlefield.first_alive_hero()
 			if hero == null:
@@ -648,10 +679,11 @@ func _build_drop_context(card: CardData, drop_position: Vector2) -> Variant:
 	return null
 
 
-# Callback que EffectExecutor llama al jugar una HERO. Devuelve bool para que
-# si el campo está lleno (3/3) la jugada falle y la carta vuelva al slot.
-func _summon_hero_callback(hero: HeroInstance) -> bool:
-	return _battlefield.add_hero(hero)
+# Callback que EffectExecutor llama al jugar una HERO. Recibe la CardData
+# (no una instancia fresh) para que podamos reusar la HeroInstance del
+# roster persistente §6.4. Devuelve bool: false = no se pudo invocar.
+func _summon_hero_callback(card: CardData) -> bool:
+	return _summon_hero_from_card(card)
 
 
 func _drop_invalid_message(card: CardData) -> String:
@@ -814,8 +846,22 @@ func _trigger_victory() -> void:
 	if not any_drop:
 		msg += "  (sin minerales)"
 	_log(msg, "88dd99")
+	# §7.7: si el signature murió durante el combate, forzar re-designar.
+	_check_signature_redesignation()
 	_log("Apretá [b]Q[/b] para volver a explorar.", "ddffaa")
 	RunState.last_combat_outcome = RunState.CombatOutcome.VICTORY
+
+
+func _check_signature_redesignation() -> void:
+	if RunState.signature_card_id == &"":
+		return
+	var sig := RunState.get_signature_card()
+	if sig == null:
+		return
+	var hero := RunState.get_or_create_hero(sig)
+	if not hero.is_alive():
+		RunState.must_redesignate_signature = true
+		_log("★ Líder %s cayó. Tenés que designar uno nuevo antes de seguir." % sig.card_name, "ffaa55")
 
 
 func _trigger_defeat() -> void:

@@ -58,11 +58,12 @@ static func _summon(card: CardData, context: Dictionary) -> Dictionary:
 	var cb: Callable = context.get("summon_callback", Callable())
 	if not cb.is_valid():
 		return { "ok": false, "message": "Sin handler de invocación" }
-	var hero := HeroInstance.new(card)
-	# El callback devuelve bool: false = battlefield rechazó (campo lleno).
-	var summoned: bool = cb.call(hero)
+	# El callback recibe la CardData y decide cómo construir la instancia
+	# (puede reusar la del roster persistente §6.4). Devuelve bool: false
+	# significa rechazo (campo lleno o hero a 0 HP, etc.).
+	var summoned: bool = cb.call(card)
 	if not summoned:
-		return { "ok": false, "message": "Campo de héroes lleno (3/3)" }
+		return { "ok": false, "message": "No se pudo invocar (campo lleno o héroe a 0 HP)" }
 	return { "ok": true, "message": "Invocaste a %s" % card.card_name }
 
 
@@ -71,11 +72,20 @@ static func _deal_damage(card: CardData, context: Dictionary) -> Dictionary:
 	if enemy == null or not enemy.is_alive():
 		return { "ok": false, "message": "Necesitás soltar la carta sobre un enemigo" }
 	var amount: int = int(card.effect.get("amount", 0))
+	# §7.3: faction synergy. Si la carta se juega "a través de" un héroe de
+	# la misma facción (carrier), los números potenciados se multiplican
+	# por 1.5×. Hoy todos los amounts de deal_damage se consideran ★.
+	var synergy := false
+	var carrier: HeroInstance = context.get("carrier_hero")
+	if carrier != null and carrier.is_alive() and card.faction != CardData.Faction.NONE:
+		if carrier.data.faction == card.faction:
+			amount = int(float(amount) * 1.5)
+			synergy = true
 	var result := CombatResolver.resolve_player_attack(enemy, amount)
-	return {
-		"ok": true,
-		"message": "%s → %s recibe %d" % [card.card_name, enemy.enemy_name, int(result["enemy_damage"])],
-	}
+	var msg := "%s → %s recibe %d" % [card.card_name, enemy.enemy_name, int(result["enemy_damage"])]
+	if synergy:
+		msg += "  ★ sinergia (%s)" % carrier.data.card_name
+	return { "ok": true, "message": msg }
 
 
 static func _heal_player(card: CardData, _context: Dictionary) -> Dictionary:

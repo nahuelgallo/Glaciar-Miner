@@ -1,8 +1,12 @@
 class_name BigCardVisual
 extends Node2D
 
-# Visual agrandado de una carta para el modal de detalle. Layout idéntico al
-# CardPreviewView pero con tamaño parametrizable.
+# Visual agrandado de una carta para el modal de detalle, menú de mazo y
+# preview. Si la carta tiene `art_path` válida (o existe el placeholder),
+# se usa como background con tinte de facción. Sin asset → fallback al
+# rect coloreado plano.
+
+const PLACEHOLDER_PATH: String = "res://assets/cards/placeholder.png"
 
 var card: CardData
 var w: float = 240.0
@@ -18,22 +22,50 @@ func _draw() -> void:
 	if card == null:
 		draw_rect(rect, Color(0.2, 0.2, 0.2))
 		return
-	draw_rect(rect, _faction_color(card.faction))
-	draw_rect(rect, _type_outline_color(card.type), false, 5.0)
-	# Banda inferior con espacio para nombre grande
-	var band := Rect2(0.0, h - 80.0, w, 80.0)
-	draw_rect(band, Color(0.08, 0.06, 0.05, 0.88))
-	# Header con nombre arriba
-	var header := Rect2(0.0, 0.0, w, 50.0)
-	draw_rect(header, Color(0.0, 0.0, 0.0, 0.30))
-	# Texto nombre arriba
+	var art := _get_card_art()
+	if art != null:
+		# Imagen llena toda la carta, después tinte de facción.
+		draw_texture_rect(art, rect, false)
+		var tint := _faction_color(card.faction)
+		tint.a = 0.42
+		draw_rect(rect, tint)
+	else:
+		draw_rect(rect, _faction_color(card.faction))
+	# Borde por tipo
+	draw_rect(rect, _type_outline_color(card.type), false, max(2.0, w * 0.02))
+	# Header oscurecido (nombre)
+	var header_h: float = max(36.0, h * 0.13)
+	draw_rect(Rect2(0.0, 0.0, w, header_h), Color(0.0, 0.0, 0.0, 0.55))
+	# Banda inferior (stats / type)
+	var band_h: float = max(50.0, h * 0.20)
+	draw_rect(Rect2(0.0, h - band_h, w, band_h), Color(0.05, 0.04, 0.04, 0.88))
+	# Texto
 	var f := ThemeDB.fallback_font
 	if f != null:
-		draw_string(f, Vector2(12.0, 30.0), card.card_name, HORIZONTAL_ALIGNMENT_LEFT, w - 24.0, 18, Color.WHITE)
-		# Tipo en la banda inferior
-		draw_string(f, Vector2(12.0, h - 50.0), _type_label(), HORIZONTAL_ALIGNMENT_LEFT, w - 24.0, 14, Color(0.95, 0.85, 0.55))
-		# Stats en la banda inferior
-		draw_string(f, Vector2(12.0, h - 26.0), _stats_label(), HORIZONTAL_ALIGNMENT_LEFT, w - 24.0, 14, Color.WHITE)
+		var name_size := int(maxf(14.0, w * 0.085))
+		var meta_size := int(maxf(11.0, w * 0.06))
+		draw_string(
+			f, Vector2(12.0, header_h * 0.65),
+			card.card_name, HORIZONTAL_ALIGNMENT_LEFT,
+			w - 24.0, name_size, Color.WHITE
+		)
+		draw_string(
+			f, Vector2(12.0, h - band_h + meta_size + 4.0),
+			_type_label(), HORIZONTAL_ALIGNMENT_LEFT,
+			w - 24.0, meta_size, Color(0.95, 0.85, 0.55)
+		)
+		draw_string(
+			f, Vector2(12.0, h - 12.0),
+			_stats_label(), HORIZONTAL_ALIGNMENT_LEFT,
+			w - 24.0, meta_size, Color.WHITE
+		)
+
+
+func _get_card_art() -> Texture2D:
+	var path: String = card.art_path if not String(card.art_path).is_empty() else PLACEHOLDER_PATH
+	if not ResourceLoader.exists(path):
+		return null
+	return load(path) as Texture2D
 
 
 func _type_label() -> String:

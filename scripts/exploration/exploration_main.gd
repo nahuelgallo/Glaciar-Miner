@@ -51,6 +51,20 @@ func _handle_combat_outcome() -> void:
 			pass
 	RunState.pending_combat_enemy_ids.clear()
 	RunState.last_combat_outcome = RunState.CombatOutcome.NONE
+	# §7.7: si el líder murió, abrir el menú de mazo en modo forzado para
+	# que el jugador elija uno nuevo antes de seguir explorando.
+	if RunState.must_redesignate_signature:
+		# Esperar un frame para que el árbol esté listo
+		call_deferred("_open_deck_menu_forced")
+
+
+func _open_deck_menu_forced() -> void:
+	for child in get_children():
+		if child is DeckManagementMenu:
+			return
+	var menu := DeckManagementMenu.new()
+	menu.forced = true
+	add_child(menu)
 
 
 func _build_hud() -> void:
@@ -258,20 +272,21 @@ func _apply_drop(drop: Dictionary) -> String:
 			return "(sin drop)"
 
 
-# §7.5 mínimo: cura 5 HP por 3 Argentite si podés pagar y necesitás cura.
-# Cuando exista la UI de shrines completa, esto se reemplaza por el panel
-# con buy-pack / heal / recycle.
+# §7.5: bump shrine abre el ShrineMenu con opciones (curar / packs).
 func _activate_shrine(_pos: Vector2i) -> void:
-	const COST: int = 3
-	const HEAL: int = 5
-	if RunState.player_hp >= RunState.player_max_hp:
-		_last_event_label.text = "Shrine: HP ya está al máximo."
-		return
-	if RunState.try_spend_minerals(CardData.Faction.APOLITICAL, COST):
-		RunState.heal_player(HEAL)
-		_last_event_label.text = "Shrine: +%d HP por %d Argentite." % [HEAL, COST]
-	else:
-		_last_event_label.text = "Shrine: necesitás %d Argentite para curar." % COST
+	# Si ya hay un menú abierto, no abrir otro.
+	for child in get_children():
+		if child is ShrineMenu:
+			return
+	var menu := ShrineMenu.new()
+	menu.closed.connect(_on_shrine_closed)
+	add_child(menu)
+	_last_event_label.text = "Shrine abierto. Elegí una opción."
+
+
+func _on_shrine_closed() -> void:
+	_last_event_label.text = "Shrine cerrado."
+	_refresh_hud()
 
 
 func _advance_world_turn() -> void:

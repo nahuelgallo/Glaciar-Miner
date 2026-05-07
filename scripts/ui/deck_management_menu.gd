@@ -24,6 +24,11 @@ const CARD_SPACING: float = 12.0
 
 const FILTER_ALL: int = -1
 
+# Cuando es true, el menú no se puede cerrar hasta que se designe un nuevo
+# signature válido (héroe vivo). Lo abre exploration_main cuando el líder
+# previo murió en combate (§7.7).
+var forced: bool = false
+
 var _active_filter: int = FILTER_ALL
 var _hovered_card: CardData
 
@@ -75,6 +80,15 @@ func _build() -> void:
 	_signature_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_refresh_signature_label()
 	add_child(_signature_label)
+
+	# §7.7: si estamos en modo forzado, mostrar alerta encima del filter bar.
+	if forced:
+		var alert := _make_label(13, Color(1.0, 0.55, 0.55))
+		alert.position = panel_pos + Vector2(0.0, 70.0)
+		alert.size = Vector2(PANEL_W, 18.0)
+		alert.text = "⚠ Tu líder anterior cayó. Elegí un héroe vivo para continuar la run."
+		alert.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		add_child(alert)
 
 	# Toolbar de filtros
 	_build_filter_bar(panel_pos)
@@ -361,10 +375,29 @@ func _on_card_input(event: InputEvent, card: CardData, clickable: bool) -> void:
 
 
 func _designate_leader(card: CardData) -> void:
+	# Solo acepta héroes vivos como signature (en modo forzado o no, mismo
+	# criterio: no tiene sentido nombrar líder a un caído).
+	var hero := RunState.get_or_create_hero(card)
+	if not hero.is_alive():
+		return
 	RunState.set_signature(card.id)
-	# Refresh: marker + signature label
+	# Si veníamos de modo forzado, ya cumplimos la condición.
+	if forced and _has_valid_live_signature():
+		RunState.must_redesignate_signature = false
+		forced = false
+		# Rebuild para ocultar la alerta y permitir cierre.
+		_clear_children()
+		_build()
+		return
 	_refresh_signature_label()
 	_rebuild_grid()
+
+
+func _has_valid_live_signature() -> bool:
+	var sig := RunState.get_signature_card()
+	if sig == null:
+		return false
+	return RunState.get_or_create_hero(sig).is_alive()
 
 
 func _open_card_detail(card: CardData) -> void:
@@ -396,11 +429,29 @@ func _make_label(font_size: int, color: Color) -> Label:
 
 
 func close() -> void:
+	# Edge case: si forced pero no hay héroes vivos para designar, limpiamos
+	# el flag y dejamos cerrar (el jugador queda sin signature hasta curar).
+	if forced and not _has_any_live_hero():
+		RunState.must_redesignate_signature = false
+		forced = false
+	# En modo forzado normal: solo se puede cerrar si hay signature vivo.
+	if forced and not _has_valid_live_signature():
+		return
 	closed.emit()
 	queue_free()
 
 
+func _has_any_live_hero() -> bool:
+	for c in RunState.ensure_deck():
+		if c.type == CardData.Type.HERO:
+			if RunState.get_or_create_hero(c).is_alive():
+				return true
+	return false
+
+
 func _on_gui_input(event: InputEvent) -> void:
+	if forced:
+		return  # bloqueamos click-fuera-cierra hasta resolver
 	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
 		var rect := Rect2(
 			Vector2((size.x - PANEL_W) * 0.5, (size.y - PANEL_H) * 0.5),
@@ -411,6 +462,8 @@ func _on_gui_input(event: InputEvent) -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	if forced:
+		return  # ESC tampoco cierra
 	if event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		close()
 		get_viewport().set_input_as_handled()
