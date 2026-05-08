@@ -1,0 +1,138 @@
+## 7. Cards & Decks
+
+### 7.1 Card types
+
+1. **Hero** — a summonable unit with HP + Defense + passive effect(s)
+2. **Action** — a combat effect played *through* a hero on the field; goes to discard after play
+3. **Effect** — a combat effect played independently of any hero; goes to discard after play
+
+### 7.2 Factions (elemental types)
+
+Cards and minerals are partitioned across **5 political factions** plus **2 neutral-ish factions** (Apoliticals and Outsiders). Each political faction's mechanical identity is a parody of how its real-world counterpart actually does politics — the friction the deck creates *is* the joke. The two neutral-ish factions exist outside the political shouting match but play different roles in the run.
+
+| Faction | Real-world bloc | Mineral | Archetype |
+| --- | --- | --- | --- |
+| Peronists | PJ tradicional / gobernadores | **Peronite** | Clientelism. Powerful effects require a cost paid to your own side — sacrifice a hero, allied HP, destroy own cards, spend minerals. The machine runs on what you feed it. |
+| Kirchnerists | Kirchnerismo / Unión por la Patria | **Kukite** | Narrative control through quantity and rule-breaking. Search the deck, force redraws, summon extra heroes, ignore per-turn caps. The rules bend around the signature. |
+| Libertarians | La Libertad Avanza | **Liberalite** | Burn and shutdown. Paralysis, poison, turn-cancel, debuffs. Many cards cost the player HP or destroy the player's own cards to fire. |
+| Macrists | PRO | **Globite** | Short-term gain, long-term cost. Cards have powerful immediate effects with explicit downsides resolved later in the same combat or at end of combat. |
+| Leftists | Frente de Izquierda y de los Trabajadores | **Zurdite** | Slow scaling. Most cards have a trivial activation condition (turn elapsed, heroes summoned, FIT cards on field) and scale with the number of FIT cards on the field. |
+| **Apoliticals** | Argentine cultural / mythic / generic figures (non-partisan) | **Argentite** | Vanilla. No synergy bonus, no deferred costs, simple effects. The FTUE / starting-deck pool and the neutral filler. |
+| **Outsiders** | Foreign actors with dangerous power (IMF, multinational mining, tech-libertarian figures, foreign governments) | **Xenite** | High-power cards with severe deferred costs that can persist *beyond* combat or for the rest of the run. No faction synergy. Tempting traps. |
+
+> **Design discipline:** these archetypes are intentionally implementable using *only* card text and existing affordances — hero subtypes, conditional activation, deferred effects, scaling on field state. **No new card-game systems** (no debt tokens, asamblea counters, inflation stacks, charisma stats). If a card design tempts you to add a new global mechanic to support it, redesign the card.
+> 
+
+### 7.2.1 Peronists — "El Aparato"
+
+- Every powerful peronist card has a **cost paid to your own side**: sacrifice an allied hero, drain allied HP, destroy a card from your deck, spend accumulated minerals, skip a future draw. The card's effect is gated on the player surrendering something tangible. Without resources to pay, peronist cards are dead in hand.
+- Costs deliberately exclude "discard your hand" — under the draw-5-discard turn structure (§6.2) the hand goes to discard at end of turn anyway, which would make discard-based costs nearly free if played late in the turn. Costs target persistent state (heroes, deck, mineral bag) instead.
+- Example card patterns (illustrative, not balanced):
+    - *"Sacrifice an allied hero. Deal damage equal to that hero's max HP."*
+    - *"All allied heroes lose 2 HP. Deal damage equal to total HP lost."*
+    - *"Spend 3 Peronite. Heal a hero to full HP and grant +2 max HP for the rest of the run."*
+    - *"Destroy a card from your deck. Draw 3 cards next turn in addition to the normal draw."*
+    - *"Your signature hero loses half its current HP. Summon two free common peronist heroes from your deck."*
+- The deck snowballs late-run when the player has multiple heroes, a fat deck, and accumulated Peronite to feed the machine. Stalls hard in early-layer combats with one hero and an empty wallet.
+- Signature heroes for peronist decks tend to be either **resource generators** (heroes whose passive provides extra cards / minerals / HP per turn) or **sacrifice fodder anchors** (heroes that produce additional value when consumed by the deck's own costs).
+- *Parody read:* nothing is free, everything is transactional. Patronage politics, vote-for-favors, the apparatus that runs on what you put into it.
+
+### 7.2.2 Kirchnerists — "El Relato"
+
+- Kirchnerist cards manipulate the deck, the hand, and the rules of the turn itself. The faction's identity is **narrative control through quantity and rule-breaking**: search the draw pile for what you want, discard your hand and redraw fresh, summon extra heroes outside the per-turn caps (§6.3), play multiple actions through the same hero, pull cards from the discard mid-combat.
+- Most powerful kirchnerist effects are **explicit exceptions to the combat rules**. Where other factions express their identity within the existing rules, kirchnerist cards rewrite them locally for one turn — the card text says what it overrides.
+- Effects skew toward **big numbers and big quantities** — full-deck searches, large multi-card draws, multiple simultaneous summons, mass reveals. The opposite of LLA's surgical shutdown.
+- Example card patterns (illustrative, not balanced):
+    - *Action*: "Search your draw pile for any card. Add it to your hand. Shuffle your draw pile."
+    - *Effect*: "Discard your hand. Draw 7 cards."
+    - *Hero passive*: "While this hero is on the field, you may summon one additional hero per turn."
+    - *Effect*: "Summon up to two non-Outsider heroes from your draw pile. They enter at full HP."
+    - *Action*: "This turn, you may play any number of action cards through any hero, ignoring the 1-action-per-hero cap (§6.3)."
+    - *Effect*: "Reveal the top 7 cards of your draw pile. Add 3 of your choice to your hand. Discard the rest."
+    - *Action*: "Return any Kirchnerist hero card from the discard to your hand."
+- Signature heroes for kirchnerist decks tend to be **rule-breaker enablers** — heroes whose passive lifts a per-turn cap or guarantees a free search/draw every turn. The deck's whole engine is *"the rules don't apply to us as long as the signature is on the field."*
+- Pairs interestingly with Peronist clientelism (§7.2.1): K tutors out the high-payoff peronist cost-cards on demand, and K's mass-draw effects refill the hand peronist cards burn through. The mixed coalition functions as *"find what we need, then pay for it."*
+- *Parody read:* "el relato" — control what reaches the player by controlling what gets drawn, what gets seen, what counts as legal in this turn. Decree governance, court packing, narrative warfare via state media. *La realidad la decide quien la cuenta.*
+
+### 7.2.3 Libertarians — "Motosierra"
+
+- Two pillars, both expressed entirely in card text:
+    - **Shutdown:** paralysis, poison, turn-cancel, single-target debuffs (e.g. *"Target enemy skips next turn"*, *"Target enemy takes 2 damage per turn for 3 turns"*).
+    - **Self-burn:** strong LLA cards explicitly cost the player HP, destroy a card from the player's deck, or sacrifice an allied hero (e.g. *"Deal 12 damage. Lose 3 HP."*, *"Destroy a card from your deck. Deal damage equal to that card's recycle value."*).
+- LLA hero stat profile: high attack, very low defense — glass cannons.
+- *Parody read:* the deck literally chainsaws itself for power.
+
+### 7.2.4 Macrists — "PRO"
+
+- Every powerful Macrist card has its downside *printed on the card itself* as a deferred effect. No tokens, no counters — just card text.
+    - *"Draw 3 cards. At the end of combat, take 6 damage."*
+    - *"Summon a free hero. That hero cannot be healed for the rest of the run."*
+    - *"All allies +2 damage this turn. Next turn, all allies −2 damage."*
+- Deferral is what creates the parody: the bill always comes due, just later.
+- Mid-range tempo: works great in short combats, falls apart in long fights where the deferred costs accumulate.
+- *Parody read:* borrow against the future, pay later. Globite-funded prosperity that mortgages itself.
+
+### 7.2.5 Leftists — "Las Condiciones Objetivas"
+
+- Two patterns, both in card text only:
+    - **Conditional activation:** cards are inert until a trivial existing-state condition is met. (*"Activates after turn 2."*, *"Activates while at least 2 FIT heroes are on the field."*, *"Activates after a hero has died this combat."*)
+    - **Field-state scaling:** payoff numbers scale with the count of FIT cards/heroes already in play. (*"Deal 1 damage per FIT card played this combat."*, *"Each FIT hero on the field gains +1 attack."*)
+- The two patterns combine: setup for 2–3 turns, then the deck snowballs.
+- *Parody read:* the vanguard waits for the conditions; theory before action; the masses arrive eventually.
+
+### 7.2.6 Apoliticals — "El Pueblo"
+
+- Argentine cultural figures, folk/mythic figures, and generic mining-fantasy archetypes — anyone widely recognized but not factionally aligned. Avoid figures with known partisan allegiance (Maradona, Eva, Che, Menem, Bergoglio, etc. — those belong in faction cards).
+- Card patterns are deliberately vanilla: clear stats, simple effects, **no faction synergy bonus**, **no deferred costs**.
+- Roles in the loop:
+    - Form the **starting deck** for first runs (FTUE) — see §7.7
+    - Appear in basic / mixed booster packs as filler
+    - Provide reliable baseline performance — never broken, never dead weight
+- Brainstorm pool (final roster TBD): El Minero, Messi, Mafalda, Gardel, Borges, Mercedes Sosa, Charly García, Favaloro, El Gaucho, La Pachamama, El Pombero, La Difunta Correa, El Linyera, San Martín, Belgrano.
+- *Parody read:* the cultural substrate that exists underneath the political shouting — recognizable, beloved, mostly powerless.
+
+### 7.2.7 Outsiders — "Los de Afuera"
+
+- Foreign actors and institutions with predatory power: the **IMF (FMI)**, multinational mining (**Barrick Gold, Rio Tinto, Glencore**), tech-libertarian figures (**Peter Thiel, Elon Musk**), foreign governments, asset managers (**BlackRock, Vanguard**), etc.
+- High-power cards with **severe deferred costs that can persist beyond the current combat or for the rest of the run.** This is a deliberate extension of the Macrist deferred-cost pattern — Macrist costs resolve in-combat; Outsider costs can outlast it.
+- **No faction synergy.** Outsiders do not pair with peronist clientelism, kirchnerist rule-breaking, FIT scaling, LLA self-burn, or PRO deferral. They are isolated power spikes. Kirchnerist tutors and mass-summons explicitly **cannot target Outsider cards** — the foreign actors stay outside the relato.
+- Rarity: typically **Epic / Legendary**. Obtained from high-tier booster packs only, paid in **Xenite** (possibly mixed with other mineral types — TBD).
+- Example card patterns (illustrative, not balanced):
+    - *FMI*: "Gain 5 minerals immediately. At the start of every combat for the rest of the run, lose 2 minerals."
+    - *Peter Thiel*: "Reveal all enemy intents for the rest of combat. At end of combat, lose 1 max HP permanently."
+    - *Barrick Gold*: "Mine every rock in the current chunk instantly. Permanently destroy a random card from your deck."
+    - *BlackRock*: "Gain 1 of every mineral type. The next booster pack you buy costs double."
+- *Parody read:* the foreign actors who actually benefit from the glacier law — the literal antagonists of the satire. Tempting power, lasting damage. Every Outsider card is a small Faustian bargain.
+
+### 7.3 Faction synergy
+
+Hero cards and action cards have a faction. Effect cards are **faction-neutral** in the proposed design (revisit if it makes effect cards too one-size-fits-all).
+
+When an action card is played *through* a hero of the **same faction**, its potentiated numbers are multiplied by **1.5×**. Numbers eligible for potentiation are marked with a star (★) in card text.
+
+### 7.4 Rarity
+
+Proposed tiers (4): **Common / Rare / Epic / Legendary**.
+
+- Higher rarity ⇒ stronger numbers, more synergy hooks, often *requires* synergy to perform
+- Higher rarity ⇒ higher mineral value when destroyed at a shrine
+- Higher-tier booster packs (see §7.5) have drop rates weighted toward higher rarities
+- *Future-scope only:* EX / foil / UR variants of existing cards. Post-jam — too much asset work for 1 week.
+
+### 7.5 Shrines
+
+Shrines are an exploration tile. At a shrine the player can:
+
+- **Buy a booster pack** with minerals. Packs come in tiers; later layers unlock better packs that contain more cards and have better rare-drop rates, but cost more. (Tier definitions TBD.)
+- **Heal** player HP and hero HP for minerals (cost TBD)
+- **Destroy cards from the deck** in exchange for minerals (rarer cards yield more)
+
+> *Pack model rationale:* feeds the "mining lottery" fantasy, scales naturally with progression, and lets us tune drop rates per pack tier rather than per shrine.
+> 
+
+### 7.6 Deck management
+
+- **No card inventory exists outside the deck.** Picked-up cards enter the deck immediately.
+- **Deck size cap:** proposed **30** (TBD — original draft was 60; likely too big for jam-length runs, validate in playtest).
+- If a pickup would exceed the cap, the player is forced to destroy cards until under the cap. Forced destruction yields **no minerals** — only voluntary destruction at shrines does.
+- The deck can be opened and viewed at any time during exploration.
