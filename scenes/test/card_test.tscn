@@ -1,11 +1,11 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://ctq2yblgnud1u"]
 
-[ext_resource type="Script" path="res://scripts/main.gd" id="1"]
-[ext_resource type="Script" path="res://scripts/card/hand_manager.gd" id="2"]
+[ext_resource type="Script" uid="uid://b4robbx1i8wei" path="res://scripts/main.gd" id="1"]
+[ext_resource type="Script" uid="uid://cs1q0mddj1q4q" path="res://scripts/card/hand_manager.gd" id="2"]
 
-[node name="Main" type="Node2D"]
+[node name="Main" type="Node2D" unique_id=190996898]
 script = ExtResource("1")
 
-[node name="HandManager" type="Node2D" parent="."]
+[node name="HandManager" type="Node2D" parent="." unique_id=1355070417]
 position = Vector2(680, 615)
 script = ExtResource("2")
